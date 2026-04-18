@@ -19,12 +19,15 @@ export default function AddStock({ user }) {
   // FETCH PRODUCTS
   // ======================
   async function fetchProducts() {
-    const { data } = await supabase.from("products").select("*");
+    const { data } = await supabase
+      .from("products")
+      .select("*");
+
     setProducts(data || []);
   }
 
   // ======================
-  // FETCH BATCHES FOR PRODUCT
+  // FETCH BATCHES
   // ======================
   async function fetchBatches(pid) {
     const { data } = await supabase
@@ -36,27 +39,78 @@ export default function AddStock({ user }) {
   }
 
   // ======================
-  // ADD STOCK
+  // ADD STOCK + HISTORY
   // ======================
   async function addStock() {
-    if (!batchId || !qty) {
-      setPopup("Select batch & enter quantity");
+    if (!productId || !batchId || !qty) {
+      setPopup("Fill all fields");
       return;
     }
 
     const batch = batches.find((b) => b.id === batchId);
 
-    await supabase
+    if (!batch) {
+      setPopup("Invalid batch selected ❌");
+      return;
+    }
+
+    const newQty = Number(qty);
+
+    if (isNaN(newQty) || newQty <= 0) {
+      setPopup("Enter valid quantity");
+      return;
+    }
+
+    console.log("ADDING STOCK:", {
+      productId,
+      batchId,
+      batchName: batch.batch_name,
+      qty: newQty,
+    });
+
+    // ======================
+    // 1️⃣ UPDATE BATCH
+    // ======================
+    const { error: updateError } = await supabase
       .from("product_batches")
       .update({
-        quantity: batch.quantity + Number(qty),
-        remaining_qty: batch.remaining_qty + Number(qty),
+        quantity: batch.quantity + newQty,
+        remaining_qty: batch.remaining_qty + newQty,
       })
-      .eq("id", batchId);
+      .eq("id", batch.id);
 
-    setPopup("Stock added successfully");
+    if (updateError) {
+      setPopup(updateError.message);
+      return;
+    }
+
+    // ======================
+    // 2️⃣ INSERT HISTORY
+    // ======================
+    const { error: insertError } = await supabase
+      .from("stock_entries")
+      .insert([
+        {
+          user_id: user.id,
+          product_id: productId,
+          batch_id: batch.id, // 🔥 ALWAYS correct
+          qty_added: newQty,
+        },
+      ]);
+
+    if (insertError) {
+      setPopup(insertError.message);
+      return;
+    }
+
+    // ======================
+    // SUCCESS
+    // ======================
+    setPopup("Stock added & history recorded ✅");
 
     setQty("");
+    setBatchId("");
+
     fetchBatches(productId);
   }
 
@@ -70,6 +124,7 @@ export default function AddStock({ user }) {
           value={productId}
           onChange={(e) => {
             setProductId(e.target.value);
+            setBatchId("");
             fetchBatches(e.target.value);
           }}
         >
@@ -96,6 +151,7 @@ export default function AddStock({ user }) {
 
         {/* QTY */}
         <input
+          type="number"
           placeholder="Quantity"
           value={qty}
           onChange={(e) => setQty(e.target.value)}

@@ -4,6 +4,8 @@ import Dashboard from "../pages/Dashboard";
 import Products from "../pages/Products";
 import Batch from "../pages/Batch";
 import AddStock from "../pages/AddStock";
+import StockHistory from "../pages/StockHistory";
+import Export from "../pages/Export";
 
 export default function Layout({ user }) {
   const [page, setPage] = useState("dashboard");
@@ -16,6 +18,8 @@ export default function Layout({ user }) {
     if (page === "sales") return <h2>Sales</h2>;
     if (page === "history") return <h2>History</h2>;
     if (page === "credit") return <h2>Credit</h2>;
+    if (page === "stockHistory") return <StockHistory user={user} />;
+    if (page === "export") return <Export user={user} />;
   }
 
   return (
@@ -32,6 +36,17 @@ export default function Layout({ user }) {
         <NavButton label="Sales" active={page === "sales"} onClick={() => setPage("sales")} />
         <NavButton label="History" active={page === "history"} onClick={() => setPage("history")} />
         <NavButton label="Credit" active={page === "credit"} onClick={() => setPage("credit")} />
+        <NavButton
+  label="Stock History"
+  active={page === "stockHistory"}
+  onClick={() => setPage("stockHistory")}
+/>
+
+<NavButton
+  label="Stock history Export"
+  active={page === "export"}
+  onClick={() => setPage("export")}
+/>
       </div>
 
       {/* MAIN */}

@@ -1,12 +1,18 @@
 import { useState } from "react";
+
 import Dashboard from "../pages/Dashboard";
 import Products from "../pages/Products";
+import Batch from "../pages/Batch";
+import AddStock from "../pages/AddStock";
+
 export default function Layout({ user }) {
   const [page, setPage] = useState("dashboard");
 
   function renderPage() {
     if (page === "dashboard") return <Dashboard user={user} />;
     if (page === "products") return <Products user={user} />;
+    if (page === "batch") return <Batch user={user} />;
+    if (page === "stock") return <AddStock user={user} />;
     if (page === "sales") return <h2>Sales</h2>;
     if (page === "history") return <h2>History</h2>;
     if (page === "credit") return <h2>Credit</h2>;
@@ -14,34 +20,37 @@ export default function Layout({ user }) {
 
   return (
     <div style={styles.container}>
-      {/* Sidebar */}
+      {/* SIDEBAR */}
       <div style={styles.sidebar}>
         <h2 style={{ color: "#fff" }}>Inventory</h2>
 
         <NavButton label="Dashboard" active={page === "dashboard"} onClick={() => setPage("dashboard")} />
         <NavButton label="Products" active={page === "products"} onClick={() => setPage("products")} />
+        <NavButton label="Batch" active={page === "batch"} onClick={() => setPage("batch")} />
+        <NavButton label="Add Stock" active={page === "stock"} onClick={() => setPage("stock")} />
+
         <NavButton label="Sales" active={page === "sales"} onClick={() => setPage("sales")} />
         <NavButton label="History" active={page === "history"} onClick={() => setPage("history")} />
         <NavButton label="Credit" active={page === "credit"} onClick={() => setPage("credit")} />
       </div>
 
-      {/* Main */}
+      {/* MAIN */}
       <div style={styles.main}>
-        {/* Topbar */}
+        {/* TOPBAR */}
         <div style={styles.topbar}>
           <span>{user.email}</span>
         </div>
 
-        {/* Content */}
+        {/* CONTENT */}
         <div style={styles.content}>{renderPage()}</div>
       </div>
     </div>
   );
 }
 
-// =====================
-// NAV BUTTON WITH HOVER
-// =====================
+// ======================
+// NAV BUTTON
+// ======================
 function NavButton({ label, active, onClick }) {
   const [hover, setHover] = useState(false);
 
@@ -65,9 +74,9 @@ function NavButton({ label, active, onClick }) {
   );
 }
 
-// =====================
+// ======================
 // STYLES
-// =====================
+// ======================
 const styles = {
   container: {
     display: "flex",

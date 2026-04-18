@@ -1,12 +1,12 @@
 import { useState } from "react";
 import Dashboard from "../pages/Dashboard";
-
+import Products from "../pages/Products";
 export default function Layout({ user }) {
   const [page, setPage] = useState("dashboard");
 
   function renderPage() {
     if (page === "dashboard") return <Dashboard user={user} />;
-    if (page === "products") return <h2>Products</h2>;
+    if (page === "products") return <Products user={user} />;
     if (page === "sales") return <h2>Sales</h2>;
     if (page === "history") return <h2>History</h2>;
     if (page === "credit") return <h2>Credit</h2>;

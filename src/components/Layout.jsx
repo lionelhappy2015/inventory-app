@@ -18,11 +18,11 @@ export default function Layout({ user }) {
       <div style={styles.sidebar}>
         <h2 style={{ color: "#fff" }}>Inventory</h2>
 
-        <NavButton label="Dashboard" onClick={() => setPage("dashboard")} />
-        <NavButton label="Products" onClick={() => setPage("products")} />
-        <NavButton label="Sales" onClick={() => setPage("sales")} />
-        <NavButton label="History" onClick={() => setPage("history")} />
-        <NavButton label="Credit" onClick={() => setPage("credit")} />
+        <NavButton label="Dashboard" active={page === "dashboard"} onClick={() => setPage("dashboard")} />
+        <NavButton label="Products" active={page === "products"} onClick={() => setPage("products")} />
+        <NavButton label="Sales" active={page === "sales"} onClick={() => setPage("sales")} />
+        <NavButton label="History" active={page === "history"} onClick={() => setPage("history")} />
+        <NavButton label="Credit" active={page === "credit"} onClick={() => setPage("credit")} />
       </div>
 
       {/* Main */}
@@ -39,14 +39,35 @@ export default function Layout({ user }) {
   );
 }
 
-function NavButton({ label, onClick }) {
+// =====================
+// NAV BUTTON WITH HOVER
+// =====================
+function NavButton({ label, active, onClick }) {
+  const [hover, setHover] = useState(false);
+
   return (
-    <button style={styles.navBtn} onClick={onClick}>
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        ...styles.navBtn,
+        background: active
+          ? "#1abc9c"
+          : hover
+          ? "#3d566e"
+          : "#34495e",
+        transform: hover ? "translateX(5px)" : "translateX(0px)",
+      }}
+    >
       {label}
     </button>
   );
 }
 
+// =====================
+// STYLES
+// =====================
 const styles = {
   container: {
     display: "flex",
@@ -65,10 +86,10 @@ const styles = {
     padding: "10px",
     border: "none",
     borderRadius: "6px",
-    background: "#34495e",
     color: "#fff",
     cursor: "pointer",
     textAlign: "left",
+    transition: "all 0.2s ease",
   },
   main: {
     flex: 1,

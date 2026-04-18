@@ -20,7 +20,6 @@ export default function Dashboard({ user }) {
 
     const today = new Date().toISOString().split("T")[0];
 
-    // TODAY SALES
     const { data: todayData } = await supabase
       .from("sales")
       .select("final_amount, total_profit, created_at")
@@ -35,7 +34,6 @@ export default function Dashboard({ user }) {
       todayProfit += Number(s.total_profit || 0);
     });
 
-    // TOTAL DUE
     const { data: dueData } = await supabase
       .from("sales")
       .select("due_amount")
@@ -46,7 +44,6 @@ export default function Dashboard({ user }) {
       totalDue += Number(d.due_amount || 0);
     });
 
-    // TOTAL SALES
     const { data: allSales } = await supabase
       .from("sales")
       .select("final_amount")

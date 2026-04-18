@@ -4,7 +4,7 @@ import Dashboard from "../pages/Dashboard";
 import Products from "../pages/Products";
 import Batch from "../pages/Batch";
 import AddStock from "../pages/AddStock";
-import StockHistory from "../pages/StockHistory";
+
 import Export from "../pages/Export";
 import Sales from "../pages/Sales";
 import Customers from "../pages/Customers";

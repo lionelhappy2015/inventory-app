@@ -6,6 +6,8 @@ import Batch from "../pages/Batch";
 import AddStock from "../pages/AddStock";
 import StockHistory from "../pages/StockHistory";
 import Export from "../pages/Export";
+import Sales from "../pages/Sales";
+import Customers from "../pages/Customers";
 
 export default function Layout({ user }) {
   const [page, setPage] = useState("dashboard");
@@ -15,11 +17,12 @@ export default function Layout({ user }) {
     if (page === "products") return <Products user={user} />;
     if (page === "batch") return <Batch user={user} />;
     if (page === "stock") return <AddStock user={user} />;
-    if (page === "sales") return <h2>Sales</h2>;
+    if (page === "sales") return <Sales user={user} />;
     if (page === "history") return <h2>History</h2>;
     if (page === "credit") return <h2>Credit</h2>;
     if (page === "stockHistory") return <StockHistory user={user} />;
     if (page === "export") return <Export user={user} />;
+    if (page === "customers") return <Customers user={user} />;
   }
 
   return (
@@ -36,6 +39,11 @@ export default function Layout({ user }) {
         <NavButton label="Sales" active={page === "sales"} onClick={() => setPage("sales")} />
         <NavButton label="History" active={page === "history"} onClick={() => setPage("history")} />
         <NavButton label="Credit" active={page === "credit"} onClick={() => setPage("credit")} />
+        <NavButton
+  label="Customers"
+  active={page === "customers"}
+  onClick={() => setPage("customers")}
+/>
         <NavButton
   label="Stock History"
   active={page === "stockHistory"}

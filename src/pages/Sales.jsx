@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../supabaseClient";
 
-export default function AddStock({ user }) {
+export default function Sales({ user }) {
   const [products, setProducts] = useState([]);
   const [batches, setBatches] = useState([]);
 
@@ -15,20 +15,11 @@ export default function AddStock({ user }) {
     fetchProducts();
   }, []);
 
-  // ======================
-  // FETCH PRODUCTS
-  // ======================
   async function fetchProducts() {
-    const { data } = await supabase
-      .from("products")
-      .select("*");
-
+    const { data } = await supabase.from("products").select("*");
     setProducts(data || []);
   }
 
-  // ======================
-  // FETCH BATCHES
-  // ======================
   async function fetchBatches(pid) {
     const { data } = await supabase
       .from("product_batches")
@@ -39,9 +30,9 @@ export default function AddStock({ user }) {
   }
 
   // ======================
-  // ADD STOCK + HISTORY
+  // SELL FUNCTION
   // ======================
-  async function addStock() {
+  async function handleSell() {
     if (!productId || !batchId || !qty) {
       setPopup("Fill all fields");
       return;
@@ -50,81 +41,81 @@ export default function AddStock({ user }) {
     const batch = batches.find((b) => b.id === batchId);
 
     if (!batch) {
-      setPopup("Invalid batch selected ❌");
+      setPopup("Batch not found");
       return;
     }
 
-    const newQty = Number(qty);
+    const sellQty = Number(qty);
 
-    if (isNaN(newQty) || newQty <= 0) {
-      setPopup("Enter valid quantity");
+    if (sellQty > batch.remaining_qty) {
+      setPopup("Not enough stock ❌");
       return;
     }
 
-    console.log("ADDING STOCK:", {
-      productId,
-      batchId,
-      batchName: batch.batch_name,
-      qty: newQty,
-    });
+    const profit = (batch.sell_price - batch.buy_price) * sellQty;
 
-    // ======================
-    // 1️⃣ UPDATE BATCH
-    // ======================
-    const { error: updateError } = await supabase
-      .from("product_batches")
-      .update({
-        quantity: batch.quantity + newQty,
-        remaining_qty: batch.remaining_qty + newQty,
-      })
-      .eq("id", batch.id);
-
-    if (updateError) {
-      setPopup(updateError.message);
-      return;
-    }
-
-    // ======================
-    // 2️⃣ INSERT HISTORY
-    // ======================
-    const { error: insertError } = await supabase
-      .from("stock_entries")
+    // 1️⃣ CREATE SALE
+    const { data: saleData } = await supabase
+      .from("sales")
       .insert([
         {
           user_id: user.id,
-          product_id: productId,
-          batch_id: batch.id, // 🔥 ALWAYS correct
-          qty_added: newQty,
+          total_amount: batch.sell_price * sellQty,
+          final_amount: batch.sell_price * sellQty,
+          paid_amount: batch.sell_price * sellQty,
+          due_amount: 0,
+          payment_status: "PAID",
+          total_profit: profit,
         },
-      ]);
+      ])
+      .select()
+      .single();
 
-    if (insertError) {
-      setPopup(insertError.message);
-      return;
-    }
+    // 2️⃣ SALE ITEM
+    await supabase.from("sale_items").insert([
+      {
+        user_id: user.id,
+        sale_id: saleData.id,
+        product_id: productId,
+        batch_id: batchId,
+        qty: sellQty,
+        sell_price: batch.sell_price,
+        buy_price: batch.buy_price,
+      },
+    ]);
 
-    // ======================
-    // SUCCESS
-    // ======================
-    setPopup("Stock added & history recorded ✅");
+    // 3️⃣ UPDATE STOCK
+    await supabase
+      .from("product_batches")
+      .update({
+        remaining_qty: batch.remaining_qty - sellQty,
+      })
+      .eq("id", batchId);
 
+    // 4️⃣ STOCK HISTORY (OUTWARD)
+    await supabase.from("stock_entries").insert([
+      {
+        user_id: user.id,
+        product_id: productId,
+        batch_id: batchId,
+        qty_added: -sellQty, // 🔥 negative means sold
+      },
+    ]);
+
+    setPopup("Sale done ✅");
     setQty("");
-    setBatchId("");
-
     fetchBatches(productId);
   }
 
   return (
     <div>
-      <h2>Add Stock</h2>
+      <h2>Sales</h2>
 
       <div style={styles.form}>
-        {/* PRODUCT */}
         <select
           value={productId}
           onChange={(e) => {
             setProductId(e.target.value);
-            setBatchId("");
             fetchBatches(e.target.value);
           }}
         >
@@ -136,7 +127,6 @@ export default function AddStock({ user }) {
           ))}
         </select>
 
-        {/* BATCH */}
         <select
           value={batchId}
           onChange={(e) => setBatchId(e.target.value)}
@@ -149,7 +139,6 @@ export default function AddStock({ user }) {
           ))}
         </select>
 
-        {/* QTY */}
         <input
           type="number"
           placeholder="Quantity"
@@ -157,10 +146,9 @@ export default function AddStock({ user }) {
           onChange={(e) => setQty(e.target.value)}
         />
 
-        <button onClick={addStock}>Add Stock</button>
+        <button onClick={handleSell}>Sell</button>
       </div>
 
-      {/* POPUP */}
       {popup && (
         <div style={styles.popup}>
           {popup}
@@ -174,17 +162,16 @@ export default function AddStock({ user }) {
 const styles = {
   form: {
     display: "flex",
-    gap: "10px",
-    flexWrap: "wrap",
+    gap: 10,
     marginTop: 20,
   },
   popup: {
     position: "fixed",
     top: 20,
     right: 20,
-    background: "#1abc9c",
+    background: "#27ae60",
     color: "#fff",
     padding: 10,
     borderRadius: 6,
   },
-};  
+};

@@ -7,7 +7,6 @@ export default function Batch({ user }) {
   const [batches, setBatches] = useState([]);
 
   const [showModal, setShowModal] = useState(false);
-  const [editingBatch, setEditingBatch] = useState(null);
 
   const [productId, setProductId] = useState("");
   const [batchName, setBatchName] = useState("");
@@ -16,6 +15,10 @@ export default function Batch({ user }) {
   const [qty, setQty] = useState("");
 
   const [popup, setPopup] = useState("");
+
+  // 🔍 NEW
+  const [search, setSearch] = useState("");
+  const [showLowStock, setShowLowStock] = useState(false);
 
   useEffect(() => {
     fetchProducts();
@@ -46,7 +49,7 @@ export default function Batch({ user }) {
   }
 
   // ======================
-  // CREATE / UPDATE
+  // CREATE BATCH + HISTORY
   // ======================
   async function saveBatch() {
     if (!productId || !batchName || !buy || !sell || !qty) {
@@ -54,60 +57,51 @@ export default function Batch({ user }) {
       return;
     }
 
-    if (editingBatch) {
-      await supabase
-        .from("product_batches")
-        .update({
-          batch_name: batchName,
-          buy_price: Number(buy),
-          sell_price: Number(sell),
-          remaining_qty: Number(qty),
-        })
-        .eq("id", editingBatch.id);
-    } else {
-      await supabase.from("product_batches").insert([
+    const newQty = Number(qty);
+
+    if (isNaN(newQty) || newQty <= 0) {
+      setPopup("Invalid quantity");
+      return;
+    }
+
+    // CREATE BATCH
+    const { data: batchData, error } = await supabase
+      .from("product_batches")
+      .insert([
         {
           product_id: productId,
           batch_name: batchName,
           buy_price: Number(buy),
           sell_price: Number(sell),
-          quantity: Number(qty),
-          remaining_qty: Number(qty),
+          quantity: newQty,
+          remaining_qty: newQty,
           user_id: user.id,
         },
-      ]);
+      ])
+      .select()
+      .single();
+
+    if (error) {
+      setPopup(error.message);
+      return;
     }
+
+    // INSERT HISTORY
+    await supabase.from("stock_entries").insert([
+      {
+        user_id: user.id,
+        product_id: productId,
+        batch_id: batchData.id,
+        qty_added: newQty,
+      },
+    ]);
 
     resetForm();
     fetchBatches();
-    setPopup(editingBatch ? "Batch updated" : "Batch created");
-  }
-
-  // ======================
-  // DELETE
-  // ======================
-  async function deleteBatch(id) {
-    if (!window.confirm("Delete this batch?")) return;
-
-    await supabase.from("product_batches").delete().eq("id", id);
-    fetchBatches();
-  }
-
-  // ======================
-  // EDIT INIT
-  // ======================
-  function startEdit(b) {
-    setEditingBatch(b);
-    setProductId(b.product_id);
-    setBatchName(b.batch_name);
-    setBuy(b.buy_price);
-    setSell(b.sell_price);
-    setQty(b.remaining_qty);
-    setShowModal(true);
+    setPopup("Batch created & stock recorded");
   }
 
   function resetForm() {
-    setEditingBatch(null);
     setProductId("");
     setBatchName("");
     setBuy("");
@@ -116,44 +110,99 @@ export default function Batch({ user }) {
     setShowModal(false);
   }
 
+  // ======================
+  // 🔍 FILTER LOGIC
+  // ======================
+  const filteredBatches = batches.filter((b) => {
+    const product = productMap[b.product_id];
+
+    const text = `${product?.name || ""} ${b.batch_name || ""}`.toLowerCase();
+
+    const matchesSearch = text.includes(search.toLowerCase());
+    const isLowStock = b.remaining_qty <= 10;
+
+    if (showLowStock) {
+      return matchesSearch && isLowStock;
+    }
+
+    return matchesSearch;
+  });
+
   return (
     <div>
-      <h2>Batch</h2>
+      <h2 style={styles.title}>Batch Management</h2>
 
       {/* ADD BUTTON */}
       <button style={styles.addBtn} onClick={() => setShowModal(true)}>
         + Add Batch
       </button>
 
+      {/* 🔍 SEARCH + FILTER */}
+      <div style={styles.searchBar}>
+        <input
+          type="text"
+          placeholder="Search product or batch..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          style={styles.searchInput}
+        />
+
+        <button
+          style={{
+            ...styles.filterBtn,
+            background: showLowStock ? "#e74c3c" : "#95a5a6",
+          }}
+          onClick={() => setShowLowStock(!showLowStock)}
+        >
+          Low Stock
+        </button>
+      </div>
+
       {/* LIST */}
       <div style={styles.list}>
-        {batches.map((b) => {
-          const product = productMap[b.product_id];
+        {filteredBatches.length === 0 ? (
+          <p>No batches found</p>
+        ) : (
+          filteredBatches.map((b) => {
+            const product = productMap[b.product_id];
 
-          return (
-            <div key={b.id} style={styles.card}>
-              <div>
-                <strong>{b.batch_name}</strong>
-                <p>
-                  {product?.name} {product?.size} {product?.unit}
-                </p>
-                <p>Stock: {b.remaining_qty}</p>
-              </div>
+            return (
+              <div key={b.id} style={styles.card}>
+                {/* LEFT */}
+                <div style={styles.left}>
+                  <h3 style={styles.batchName}>{b.batch_name}</h3>
 
-              <div style={styles.actions}>
-                <button onClick={() => startEdit(b)}>Edit</button>
-                <button onClick={() => deleteBatch(b.id)}>Delete</button>
+                  <p style={styles.product}>
+                    {product?.name} {product?.size} {product?.unit}
+                  </p>
+
+                  <p
+                    style={{
+                      ...styles.stock,
+                      color: b.remaining_qty <= 10 ? "red" : "black",
+                      fontWeight: b.remaining_qty <= 10 ? "600" : "normal",
+                    }}
+                  >
+                    Stock: {b.remaining_qty}
+                  </p>
+                </div>
+
+                {/* RIGHT */}
+                <div style={styles.right}>
+                  <p style={styles.buy}>Buy: ₹{b.buy_price}</p>
+                  <p style={styles.sell}>Sell: ₹{b.sell_price}</p>
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })
+        )}
       </div>
 
       {/* MODAL */}
       {showModal && (
         <div style={styles.overlay}>
           <div style={styles.modal}>
-            <h3>{editingBatch ? "Edit Batch" : "Create Batch"}</h3>
+            <h3>Create Batch</h3>
 
             <select
               value={productId}
@@ -174,18 +223,21 @@ export default function Batch({ user }) {
             />
 
             <input
+              type="number"
               placeholder="Buy Price"
               value={buy}
               onChange={(e) => setBuy(e.target.value)}
             />
 
             <input
+              type="number"
               placeholder="Sell Price"
               value={sell}
               onChange={(e) => setSell(e.target.value)}
             />
 
             <input
+              type="number"
               placeholder="Stock"
               value={qty}
               onChange={(e) => setQty(e.target.value)}
@@ -214,6 +266,8 @@ export default function Batch({ user }) {
 // STYLES
 // ======================
 const styles = {
+  title: { marginBottom: 15 },
+
   addBtn: {
     marginBottom: 20,
     padding: 10,
@@ -223,22 +277,67 @@ const styles = {
     borderRadius: 6,
     cursor: "pointer",
   },
+
+  searchBar: {
+    display: "flex",
+    gap: 10,
+    marginBottom: 15,
+  },
+
+  searchInput: {
+    flex: 1,
+    padding: 8,
+    borderRadius: 6,
+    border: "1px solid #ccc",
+  },
+
+  filterBtn: {
+    padding: "8px 12px",
+    border: "none",
+    borderRadius: 6,
+    cursor: "pointer",
+    color: "#fff",
+  },
+
   list: {
     display: "flex",
     flexDirection: "column",
-    gap: 10,
+    gap: 12,
   },
+
   card: {
     display: "flex",
     justifyContent: "space-between",
+    alignItems: "center",
     padding: 15,
     background: "#fff",
-    borderRadius: 8,
+    borderRadius: 10,
+    boxShadow: "0 2px 6px rgba(0,0,0,0.08)",
   },
-  actions: {
+
+  left: {
     display: "flex",
-    gap: 10,
+    flexDirection: "column",
+    gap: 4,
   },
+
+  right: {
+    textAlign: "right",
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+  },
+
+  batchName: { margin: 0, fontSize: 16, fontWeight: "600" },
+
+  product: { margin: 0, fontSize: 14, color: "#555" },
+
+  stock: { margin: 0, fontSize: 14 },
+
+  buy: { margin: 0, fontSize: 14, color: "#3498db" },
+
+  sell: { margin: 0, fontSize: 14, color: "#27ae60", fontWeight: "600" },
+
   overlay: {
     position: "fixed",
     top: 0,
@@ -250,6 +349,7 @@ const styles = {
     justifyContent: "center",
     alignItems: "center",
   },
+
   modal: {
     background: "#fff",
     padding: 20,
@@ -259,10 +359,12 @@ const styles = {
     gap: 10,
     width: 300,
   },
+
   modalBtns: {
     display: "flex",
     justifyContent: "space-between",
   },
+
   popup: {
     position: "fixed",
     top: 20,

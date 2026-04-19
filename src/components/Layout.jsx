@@ -6,9 +6,12 @@ import Batch from "../pages/Batch";
 import AddStock from "../pages/AddStock";
 
 import Export from "../pages/Export";
-import Sales from "../pages/Sales";
+
 import SalesHistory from "../pages/SalesHistory";
 import Customers from "../pages/Customers";
+
+import EditInvoiceSelect from "../pages/editStock/EditInvoiceSelect";
+import SalesFlow from "../pages/salesPage/SalesFlow";
 
 export default function Layout({ user }) {
   const [page, setPage] = useState("dashboard");
@@ -18,8 +21,11 @@ export default function Layout({ user }) {
     if (page === "products") return <Products user={user} />;
     if (page === "batch") return <Batch user={user} />;
     if (page === "stock") return <AddStock user={user} />;
-    if (page === "sales") return <Sales user={user} />;
+    if (page === "sales") return <SalesFlow user={user} />;
     if (page === "salesHistory") return <SalesHistory user={user} />;
+    if (page === "editStock") return <EditInvoiceSelect user={user} />;
+    
+    
 
     if (page === "credit") return <h2>Credit</h2>;
 
@@ -39,8 +45,12 @@ export default function Layout({ user }) {
         <NavButton label="Batch" active={page === "batch"} onClick={() => setPage("batch")} />
         <NavButton label="Add Stock" active={page === "stock"} onClick={() => setPage("stock")} />
 
-        <NavButton label="Sales" active={page === "sales"} onClick={() => setPage("sales")} />
-        <NavButton label="History" active={page === "history"} onClick={() => setPage("history")} />
+        <NavButton
+  label="Sales"
+  active={page === "saless"}
+  onClick={() => setPage("sales")}
+/>
+        
         <NavButton label="Credit" active={page === "credit"} onClick={() => setPage("credit")} />
         <NavButton
   label="Customers"
@@ -53,6 +63,12 @@ export default function Layout({ user }) {
   label="Sales History"
   active={page === "salesHistory"}
   onClick={() => setPage("salesHistory")}
+/>
+
+<NavButton
+  label="Edit Invoice"
+  active={page === "editStock"}
+  onClick={() => setPage("editStock")}
 />
        
 

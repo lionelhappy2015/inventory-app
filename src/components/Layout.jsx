@@ -7,6 +7,7 @@ import AddStock from "../pages/AddStock";
 
 import Export from "../pages/Export";
 import Sales from "../pages/Sales";
+import SalesHistory from "../pages/SalesHistory";
 import Customers from "../pages/Customers";
 
 export default function Layout({ user }) {
@@ -18,9 +19,11 @@ export default function Layout({ user }) {
     if (page === "batch") return <Batch user={user} />;
     if (page === "stock") return <AddStock user={user} />;
     if (page === "sales") return <Sales user={user} />;
-    if (page === "history") return <h2>History</h2>;
+    if (page === "salesHistory") return <SalesHistory user={user} />;
+
     if (page === "credit") return <h2>Credit</h2>;
-    if (page === "stockHistory") return <StockHistory user={user} />;
+
+   
     if (page === "export") return <Export user={user} />;
     if (page === "customers") return <Customers user={user} />;
   }
@@ -44,14 +47,18 @@ export default function Layout({ user }) {
   active={page === "customers"}
   onClick={() => setPage("customers")}
 />
-        <NavButton
-  label="Stock History"
-  active={page === "stockHistory"}
-  onClick={() => setPage("stockHistory")}
-/>
+
 
 <NavButton
-  label="Stock history Export"
+  label="Sales History"
+  active={page === "salesHistory"}
+  onClick={() => setPage("salesHistory")}
+/>
+       
+
+
+<NavButton
+  label="Stock Add history Export"
   active={page === "export"}
   onClick={() => setPage("export")}
 />

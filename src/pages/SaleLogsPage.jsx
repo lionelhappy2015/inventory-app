@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../supabaseClient";
 import * as XLSX from "xlsx";
+import { formatTimeIST, formatIST } from "../utils/time";
 
 export default function SaleLogsPage({ user }) {
   const [logs, setLogs] = useState([]);
@@ -32,7 +33,7 @@ export default function SaleLogsPage({ user }) {
       .from("product_batches")
       .select("id, batch_name");
 
-    const mapped = logsData.map((log) => {
+    const mapped = (logsData || []).map((log) => {
       const product = products?.find(
         (p) => p.id === log.product_id
       );
@@ -62,7 +63,7 @@ export default function SaleLogsPage({ user }) {
     }
 
     const filtered = logs.filter((l) =>
-      l.created_at.startsWith(date)
+      l.created_at?.startsWith(date)
     );
 
     setFilteredLogs(filtered);
@@ -70,7 +71,7 @@ export default function SaleLogsPage({ user }) {
 
   // ================= GROUP =================
   const grouped = filteredLogs.reduce((acc, log) => {
-    const date = log.created_at.split("T")[0];
+    const date = log.created_at?.split("T")[0];
 
     if (!acc[date]) acc[date] = [];
     acc[date].push(log);
@@ -86,37 +87,64 @@ export default function SaleLogsPage({ user }) {
     UPDATE_PRICE: "Price Updated",
   };
 
-  // ================= EXPORT =================
+  // ================= EXPORT (FIXED) =================
   function exportExcel() {
-    const data = filteredLogs.map((l) => ({
-      Date: new Date(l.created_at).toLocaleString(),
+    try {
+      if (!filteredLogs || filteredLogs.length === 0) {
+        alert("No logs to export");
+        return;
+      }
 
-      Invoice: l.sale_id ? `#${l.sale_id.slice(0, 6)}` : "-",
-
-      Action: actionMap[l.action] || l.action,
-
-      Product: `${l.product_name} (${l.product_size})`,
-      Batch: l.batch_name,
-
-      // 🔥 IMPORTANT FIX
-      OldStock: l.old_qty ?? "-",
-      NewStock: l.new_qty ?? "-",
-      Change:
-        l.old_qty != null && l.new_qty != null
-          ? `${l.old_qty} → ${l.new_qty}`
+      const data = filteredLogs.map((l) => ({
+        // ✅ IST TIME FIX
+        Date: l.created_at
+          ? formatIST(l.created_at + "Z")
           : "-",
 
-      OldPrice: l.old_price ?? "-",
-      NewPrice: l.new_price ?? "-",
+        // ✅ INVOICE
+        Invoice: l.sale_id ? `#${l.sale_id.slice(0, 6)}` : "-",
 
-      Note: l.note || "",
-    }));
+        // ✅ ACTION
+        Action: actionMap[l.action] || l.action,
 
-    const ws = XLSX.utils.json_to_sheet(data);
-    const wb = XLSX.utils.book_new();
+        // ✅ PRODUCT
+        Product: `${l.product_name} (${l.product_size})`,
 
-    XLSX.utils.book_append_sheet(wb, ws, "Logs");
-    XLSX.writeFile(wb, "sale_logs.xlsx");
+        // ✅ BATCH
+        Batch: l.batch_name,
+
+        // ✅ QUANTITY
+        OldQuantity: l.old_qty ?? "-",
+        NewQuantity: l.new_qty ?? "-",
+
+        QuantityChange:
+          l.old_qty != null && l.new_qty != null
+            ? `${l.old_qty} → ${l.new_qty}`
+            : "-",
+
+        // ✅ PRICE
+        OldRate: l.old_price ?? "-",
+        NewRate: l.new_price ?? "-",
+
+        // ✅ TOTAL (if exists)
+        OldTotal: l.old_total ?? "-",
+        NewTotal: l.new_total ?? "-",
+
+        // ✅ NOTE
+        Note: l.note || "",
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+
+      XLSX.utils.book_append_sheet(wb, ws, "Sale Logs");
+
+      XLSX.writeFile(wb, "sale_logs.xlsx");
+
+    } catch (err) {
+      console.error("Export failed:", err);
+      alert("Export failed. Check console.");
+    }
   }
 
   return (
@@ -131,7 +159,10 @@ export default function SaleLogsPage({ user }) {
           onChange={(e) => filterByDate(e.target.value)}
         />
 
-        <button style={styles.exportBtn} onClick={exportExcel}>
+        <button
+          style={styles.exportBtn}
+          onClick={() => exportExcel()}
+        >
           Export Excel
         </button>
       </div>
@@ -149,18 +180,19 @@ export default function SaleLogsPage({ user }) {
           {logs.map((log) => (
             <div key={log.id} style={styles.card}>
               
-              {/* HEADER */}
               <div style={styles.row}>
                 <strong>
                   {actionMap[log.action] || log.action}
                 </strong>
 
+                {/* ✅ IST TIME FIX */}
                 <span>
-                  {new Date(log.created_at).toLocaleTimeString()}
+                  {log.created_at
+                    ? formatTimeIST(log.created_at + "Z")
+                    : "-"}
                 </span>
               </div>
 
-              {/* 🔥 INVOICE */}
               <p>
                 <b>Invoice:</b>{" "}
                 {log.sale_id
@@ -168,7 +200,6 @@ export default function SaleLogsPage({ user }) {
                   : "-"}
               </p>
 
-              {/* DETAILS */}
               <div style={styles.details}>
                 <p>
                   <b>Product:</b> {log.product_name} (
@@ -179,17 +210,15 @@ export default function SaleLogsPage({ user }) {
                   <b>Batch:</b> {log.batch_name}
                 </p>
 
-                {/* 🔥 STOCK CHANGE FIX */}
                 <p>
                   <b>Stock Change:</b>{" "}
                   {log.old_qty ?? "-"} →{" "}
                   {log.new_qty ?? "-"}
                 </p>
 
-                {/* PRICE */}
                 <p>
-                  <b>Price Change:</b>{" "}
-                  ₹{log.old_price ?? "-"} → ₹
+                  <b>Price Change:</b> ₹
+                  {log.old_price ?? "-"} → ₹
                   {log.new_price ?? "-"}
                 </p>
 

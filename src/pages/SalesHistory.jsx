@@ -15,6 +15,7 @@ export default function SalesHistory({ user }) {
     fetchSales();
   }, []);
 
+  // ================= FETCH =================
   async function fetchSales() {
     let query = supabase
       .from("sales")
@@ -26,13 +27,12 @@ export default function SalesHistory({ user }) {
     if (to) query = query.lte("created_at", to);
 
     const { data } = await query;
+
     setSales(data || []);
     groupByDate(data || []);
   }
 
-  // =====================
-  // GROUP BY DATE
-  // =====================
+  // ================= GROUP =================
   function groupByDate(data) {
     const groupedData = {};
 
@@ -53,11 +53,12 @@ export default function SalesHistory({ user }) {
     setGrouped(groupedData);
   }
 
-  // =====================
-  // EXPORT
-  // =====================
+  // ================= EXPORT =================
   async function exportExcel() {
-    if (sales.length === 0) return;
+    if (sales.length === 0) {
+      alert("No data");
+      return;
+    }
 
     const wb = XLSX.utils.book_new();
 
@@ -67,19 +68,50 @@ export default function SalesHistory({ user }) {
         .select("*, products(name, size)")
         .eq("sale_id", sale.id);
 
-      const rows = items.map((i) => ({
-        Product: i.products?.name,
-        Size: i.products?.size,
-        Qty: i.qty,
-        Price: i.sell_price,
-        Total: i.sell_price * i.qty,
-        Profit: (i.sell_price - i.buy_price) * i.qty,
-      }));
+      const rows = [];
+
+      // HEADER
+      rows.push({ A: "Invoice", B: sale.id.slice(0, 6) });
+      rows.push({ A: "Customer", B: sale.customers?.name || "N/A" });
+      rows.push({
+        A: "Date",
+        B: new Date(sale.created_at).toLocaleString(),
+      });
 
       rows.push({});
-      rows.push({ Product: "TOTAL", Total: sale.final_amount });
 
-      const ws = XLSX.utils.json_to_sheet(rows);
+      // TABLE HEADER
+      rows.push({
+        Product: "Product",
+        Size: "Size",
+        Qty: "Qty",
+        Price: "Price",
+        Total: "Total",
+        Profit: "Profit",
+      });
+
+      // ITEMS
+      items.forEach((i) => {
+        rows.push({
+          Product: i.products?.name,
+          Size: i.products?.size,
+          Qty: i.qty,
+          Price: i.sell_price,
+          Total: i.sell_price * i.qty,
+          Profit: (i.sell_price - i.buy_price) * i.qty,
+        });
+      });
+
+      // TOTAL
+      rows.push({});
+      rows.push({
+        Product: "TOTAL",
+        Total: sale.final_amount,
+      });
+
+      const ws = XLSX.utils.json_to_sheet(rows, {
+        skipHeader: true,
+      });
 
       XLSX.utils.book_append_sheet(
         wb,
@@ -91,9 +123,7 @@ export default function SalesHistory({ user }) {
     XLSX.writeFile(wb, "Sales.xlsx");
   }
 
-  // =====================
-  // BILL VIEW
-  // =====================
+  // ================= BILL VIEW =================
   if (selectedSale) {
     return (
       <BillDetails
@@ -109,22 +139,28 @@ export default function SalesHistory({ user }) {
 
       {/* FILTER */}
       <div style={styles.filter}>
-        <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-        <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+        <input
+          type="date"
+          value={from}
+          onChange={(e) => setFrom(e.target.value)}
+        />
+        <input
+          type="date"
+          value={to}
+          onChange={(e) => setTo(e.target.value)}
+        />
         <button onClick={fetchSales}>Filter</button>
-        <button onClick={exportExcel}>Export</button>
+        <button onClick={exportExcel}>Export Excel</button>
       </div>
 
-      {/* GROUPED LIST */}
+      {/* GROUPED VIEW */}
       {Object.keys(grouped).map((date) => (
         <div key={date} style={styles.dayBlock}>
-          {/* DATE HEADER */}
           <div style={styles.dayHeader}>
             <strong>{date}</strong>
             <span>₹{grouped[date].total}</span>
           </div>
 
-          {/* BILLS */}
           {grouped[date].bills.map((s) => (
             <div
               key={s.id}
@@ -162,10 +198,10 @@ const styles = {
   dayHeader: {
     display: "flex",
     justifyContent: "space-between",
-    marginBottom: 10,
     background: "#eef2f7",
     padding: 10,
     borderRadius: 8,
+    marginBottom: 10,
   },
 
   card: {

@@ -12,6 +12,7 @@ import Customers from "../pages/Customers";
 
 import EditInvoiceSelect from "../pages/editStock/EditInvoiceSelect";
 import SalesFlow from "../pages/salesPage/SalesFlow";
+import SaleLogsPage from "../pages/SaleLogsPage";
 
 export default function Layout({ user }) {
   const [page, setPage] = useState("dashboard");
@@ -24,6 +25,7 @@ export default function Layout({ user }) {
     if (page === "sales") return <SalesFlow user={user} />;
     if (page === "salesHistory") return <SalesHistory user={user} />;
     if (page === "editStock") return <EditInvoiceSelect user={user} />;
+    if (page === "sale_logs") return <SaleLogsPage user={user} />;
     
     
 
@@ -69,6 +71,12 @@ export default function Layout({ user }) {
   label="Edit Invoice"
   active={page === "editStock"}
   onClick={() => setPage("editStock")}
+/>
+
+<NavButton 
+  label="AUDIT Sale edit Logs" 
+  active={page === "sale_logs"} 
+  onClick={() => setPage("sale_logs")} 
 />
        
 

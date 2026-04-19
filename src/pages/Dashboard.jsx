@@ -20,9 +20,10 @@ export default function Dashboard({ user }) {
 
     const today = new Date().toISOString().split("T")[0];
 
+    // 🔥 TODAY SALES + PROFIT
     const { data: todayData } = await supabase
       .from("sales")
-      .select("final_amount, total_profit, created_at")
+      .select("final_amount, total_profit")
       .eq("user_id", user.id)
       .gte("created_at", today);
 
@@ -34,6 +35,7 @@ export default function Dashboard({ user }) {
       todayProfit += Number(s.total_profit || 0);
     });
 
+    // 🔥 TOTAL DUE
     const { data: dueData } = await supabase
       .from("sales")
       .select("due_amount")
@@ -44,13 +46,14 @@ export default function Dashboard({ user }) {
       totalDue += Number(d.due_amount || 0);
     });
 
-    const { data: allSales } = await supabase
+    // 🔥 TOTAL SALES
+    const { data: totalSalesData } = await supabase
       .from("sales")
       .select("final_amount")
       .eq("user_id", user.id);
 
     let totalSales = 0;
-    allSales?.forEach((s) => {
+    totalSalesData?.forEach((s) => {
       totalSales += Number(s.final_amount || 0);
     });
 
@@ -65,7 +68,7 @@ export default function Dashboard({ user }) {
   }
 
   return (
-    <div>
+    <div style={{ padding: 20 }}>
       <h2>Dashboard</h2>
 
       {loading ? (
@@ -85,8 +88,8 @@ export default function Dashboard({ user }) {
 function Card({ title, value, color }) {
   return (
     <div style={{ ...styles.card, borderTop: `5px solid ${color}` }}>
-      <h4>{title}</h4>
-      <h2>₹ {value}</h2>
+      <h4 style={{ marginBottom: 10 }}>{title}</h4>
+      <h2>₹ {Number(value).toFixed(2)}</h2>
     </div>
   );
 }

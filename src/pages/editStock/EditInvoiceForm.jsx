@@ -13,7 +13,6 @@ export default function EditInvoiceForm({ sale, user, onBack }) {
     loadData();
   }, []);
 
-  // ================= LOAD =================
   async function loadData() {
     const { data } = await supabase
       .from("sale_items")
@@ -43,21 +42,23 @@ export default function EditInvoiceForm({ sale, user, onBack }) {
     setBatches(b || []);
   }
 
-  // ================= LOG =================
   async function logEdit(data) {
     await supabase.from("sale_edit_logs").insert({
       sale_id: sale.id,
+      user_id: user.id,
       note,
       ...data,
     });
   }
 
-  // ================= CALC =================
   const subtotal = items.reduce((s, i) => s + i.qty * i.sell_price, 0);
   const final = Math.max(subtotal - discount, 0);
   const due = Math.max(final - paid, 0);
 
-  // ================= ADD =================
+  useEffect(() => {
+    setPaid(final);
+  }, [final]);
+
   function addItem(batch) {
     if (batch.remaining_qty <= 0) {
       alert("No stock available");
@@ -80,11 +81,18 @@ export default function EditInvoiceForm({ sale, user, onBack }) {
       action: "ADD_ITEM",
       product_id: batch.product_id,
       batch_id: batch.id,
+
+      old_qty: 0,
       new_qty: 1,
+
+      old_price: 0,
+      new_price: 1 * batch.sell_price,
+
+      old_total: 0,
+      new_total: 1 * batch.sell_price,
     });
   }
 
-  // ================= REMOVE =================
   function removeItem(index) {
     const item = items[index];
 
@@ -92,24 +100,33 @@ export default function EditInvoiceForm({ sale, user, onBack }) {
       action: "REMOVE_ITEM",
       product_id: item.product_id,
       batch_id: item.batch_id,
+
       old_qty: item.qty,
+      new_qty: 0,
+
+      old_price: item.qty * item.sell_price,
+      new_price: 0,
+
+      old_total: item.qty * item.sell_price,
+      new_total: 0,
     });
 
     setItems((prev) => prev.filter((_, i) => i !== index));
   }
 
-  // ================= UPDATE QTY =================
   function updateQty(index, value) {
     const newQty = Number(value);
     const item = items[index];
 
     const batch = batches.find((b) => b.id === item.batch_id);
 
-    // allow previous qty adjustment
     if (newQty > batch.remaining_qty + item.qty) {
       alert("Stock exceeded!");
       return;
     }
+
+    const oldQty = item.qty;
+    const price = item.sell_price;
 
     const updated = [...items];
     updated[index].qty = newQty;
@@ -119,19 +136,25 @@ export default function EditInvoiceForm({ sale, user, onBack }) {
       action: "UPDATE_QTY",
       product_id: item.product_id,
       batch_id: item.batch_id,
+
+      old_qty: oldQty,
       new_qty: newQty,
+
+      // 🔥 FIXED FINAL PRICE LOGIC
+      old_price: oldQty * price,
+      new_price: newQty * price,
+
+      old_total: oldQty * price,
+      new_total: newQty * price,
     });
   }
 
-  // ================= SAVE =================
   async function saveInvoice() {
-    // 1. Get old items
     const { data: oldItems } = await supabase
       .from("sale_items")
       .select("*")
       .eq("sale_id", sale.id);
 
-    // 2. Restore stock
     for (let old of oldItems) {
       const { data: batch } = await supabase
         .from("product_batches")
@@ -147,10 +170,8 @@ export default function EditInvoiceForm({ sale, user, onBack }) {
         .eq("id", old.batch_id);
     }
 
-    // 3. Delete old items
     await supabase.from("sale_items").delete().eq("sale_id", sale.id);
 
-    // 4. Insert new + deduct
     for (let i of items) {
       const { data: batch } = await supabase
         .from("product_batches")
@@ -181,7 +202,6 @@ export default function EditInvoiceForm({ sale, user, onBack }) {
       });
     }
 
-    // 5. Update sale
     await supabase
       .from("sales")
       .update({
@@ -204,7 +224,6 @@ export default function EditInvoiceForm({ sale, user, onBack }) {
         <button onClick={onBack}>← Back</button>
       </div>
 
-      {/* TABLE */}
       <div style={styles.table}>
         <div style={styles.rowHead}>
           <span>Product</span>
@@ -241,7 +260,6 @@ export default function EditInvoiceForm({ sale, user, onBack }) {
         })}
       </div>
 
-      {/* ADD PRODUCT */}
       <select
         onChange={(e) => {
           const batch = batches.find((b) => b.id === e.target.value);
@@ -256,7 +274,6 @@ export default function EditInvoiceForm({ sale, user, onBack }) {
         ))}
       </select>
 
-      {/* NOTE */}
       <textarea
         placeholder="Add note for this edit..."
         value={note}
@@ -264,7 +281,6 @@ export default function EditInvoiceForm({ sale, user, onBack }) {
         style={styles.note}
       />
 
-      {/* SUMMARY */}
       <div style={styles.summary}>
         <p>Subtotal: ₹{subtotal}</p>
 

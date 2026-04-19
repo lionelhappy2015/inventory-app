@@ -1,7 +1,12 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../supabaseClient";
-import BillDetails from "./BillDetails";
+import BillDetails from "./BillDetails.jsx";
 import * as XLSX from "xlsx";
+
+import {
+  downloadInvoicePDF,
+  printInvoice,
+} from "../pages/salesPage/invoiceService";
 
 export default function SalesHistory({ user }) {
   const [sales, setSales] = useState([]);
@@ -53,6 +58,42 @@ export default function SalesHistory({ user }) {
     setGrouped(groupedData);
   }
 
+  // ================= FETCH FULL SALE =================
+  async function getFullSaleDetails(saleId) {
+    const { data: sale } = await supabase
+      .from("sales")
+      .select("*, customers(name)")
+      .eq("id", saleId)
+      .single();
+
+    const { data: items } = await supabase
+      .from("sale_items")
+      .select(`
+        qty,
+        sell_price,
+        products(name, size),
+        product_batches(batch_name)
+      `)
+      .eq("sale_id", saleId);
+
+    const formattedItems = items.map((i) => ({
+      name: i.products?.name,
+      size: i.products?.size,
+      batch_name: i.product_batches?.batch_name,
+      qty: i.qty,
+      sell_price: i.sell_price,
+    }));
+
+    return {
+      id: sale.id,
+      customer: { name: sale.customers?.name || "Walk-in" },
+      items: formattedItems,
+      final: sale.final_amount,
+      paid: sale.paid_amount,
+      due: sale.due_amount,
+    };
+  }
+
   // ================= EXPORT =================
   async function exportExcel() {
     if (sales.length === 0) {
@@ -70,7 +111,6 @@ export default function SalesHistory({ user }) {
 
       const rows = [];
 
-      // HEADER
       rows.push({ A: "Invoice", B: sale.id.slice(0, 6) });
       rows.push({ A: "Customer", B: sale.customers?.name || "N/A" });
       rows.push({
@@ -80,7 +120,6 @@ export default function SalesHistory({ user }) {
 
       rows.push({});
 
-      // TABLE HEADER
       rows.push({
         Product: "Product",
         Size: "Size",
@@ -90,7 +129,6 @@ export default function SalesHistory({ user }) {
         Profit: "Profit",
       });
 
-      // ITEMS
       items.forEach((i) => {
         rows.push({
           Product: i.products?.name,
@@ -102,7 +140,6 @@ export default function SalesHistory({ user }) {
         });
       });
 
-      // TOTAL
       rows.push({});
       rows.push({
         Product: "TOTAL",
@@ -113,11 +150,7 @@ export default function SalesHistory({ user }) {
         skipHeader: true,
       });
 
-      XLSX.utils.book_append_sheet(
-        wb,
-        ws,
-        sale.id.slice(0, 6)
-      );
+      XLSX.utils.book_append_sheet(wb, ws, sale.id.slice(0, 6));
     }
 
     XLSX.writeFile(wb, "Sales.xlsx");
@@ -162,18 +195,38 @@ export default function SalesHistory({ user }) {
           </div>
 
           {grouped[date].bills.map((s) => (
-            <div
-              key={s.id}
-              style={styles.card}
-              onClick={() => setSelectedSale(s)}
-            >
-              <div>
+            <div key={s.id} style={styles.card}>
+              {/* LEFT CLICK → VIEW */}
+              <div onClick={() => setSelectedSale(s)}>
                 <strong>Invoice #{s.id.slice(0, 6)}</strong>
                 <p>{s.customers?.name}</p>
               </div>
 
+              {/* RIGHT SIDE */}
               <div style={{ textAlign: "right" }}>
                 <p>₹{s.final_amount}</p>
+
+                <div style={{ display: "flex", gap: 5 }}>
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      const data = await getFullSaleDetails(s.id);
+                      printInvoice(data);
+                    }}
+                  >
+                    🖨
+                  </button>
+
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      const data = await getFullSaleDetails(s.id);
+                      downloadInvoicePDF(data);
+                    }}
+                  >
+                    📄
+                  </button>
+                </div>
               </div>
             </div>
           ))}

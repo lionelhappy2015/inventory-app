@@ -1,5 +1,6 @@
 import { supabase } from "../../supabaseClient";
-import html2pdf from "html2pdf.js";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 // ================= SAVE =================
 export async function saveSaleService({
@@ -12,7 +13,6 @@ export async function saveSaleService({
   paid,
   due,
 }) {
-  // 🔥 15 sec duplicate protection
   const { data: lastSale } = await supabase
     .from("sales")
     .select("created_at")
@@ -24,9 +24,7 @@ export async function saveSaleService({
 
   if (lastSale) {
     const lastTime = new Date(lastSale.created_at).getTime();
-    const now = Date.now();
-
-    if (now - lastTime < 15000) {
+    if (Date.now() - lastTime < 15000) {
       throw new Error("Wait 15 seconds before saving again");
     }
   }
@@ -86,92 +84,209 @@ export function downloadInvoicePDF({
   id,
   items,
   customer,
-  total,
   final,
   paid,
   due,
   discount = 0,
 }) {
+  const doc = new jsPDF();
   const now = new Date();
 
-  const element = document.createElement("div");
+  doc.setFontSize(16);
+  doc.text(`INVOICE #${id.slice(0, 6)}`, 14, 15);
 
-  element.innerHTML = `
-    <div style="
-      font-family: Arial, sans-serif;
-      padding:20px;
-      color:#000;
-      font-size:13px;
-    ">
-      
-      <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
-        <h2 style="margin:0;">INVOICE #${id.slice(0,6)}</h2>
-        <div style="text-align:right; font-size:12px;">
-          ${now.toLocaleDateString()}<br/>
-          ${now.toLocaleTimeString()}
-        </div>
-      </div>
+  doc.setFontSize(10);
+  doc.text(now.toLocaleString(), 150, 12);
 
-      <p><b>Customer:</b> ${customer.name}</p>
+  doc.setFontSize(12);
+  doc.text(`Customer: ${customer.name}`, 14, 25);
 
-      <table style="
-        width:100%;
-        border-collapse:collapse;
-        margin-top:10px;
-        border:3px solid black;
-      ">
-        <thead>
-          <tr>
-            <th style="border:3px solid black; padding:10px;">Product</th>
-            <th style="border:3px solid black; padding:10px;">Batch</th>
-            <th style="border:3px solid black; padding:10px;">Qty</th>
-            <th style="border:3px solid black; padding:10px;">Price</th>
-            <th style="border:3px solid black; padding:10px;">Total</th>
-          </tr>
-        </thead>
+  autoTable(doc, {
+    startY: 30,
+    head: [["Product", "Batch", "Qty", "Price", "Total"]],
+    body: items.map((i) => [
+      `${i.name} (${i.size})`,
+      i.batch_name,
+      i.qty,
+      `₹${i.sell_price}`,
+      `₹${i.qty * i.sell_price}`,
+    ]),
+    theme: "grid",
+    styles: { fontSize: 10 },
+  });
 
-        <tbody>
-          ${items.map(i => `
+  let y = doc.lastAutoTable.finalY + 10;
+
+  doc.text(`Final: ₹${final}`, 14, y);
+  y += 6;
+
+  doc.text(`Paid: ₹${paid}`, 14, y);
+  y += 6;
+
+  if (due > 0) {
+    doc.text(`Due: ₹${due}`, 14, y);
+  }
+
+  doc.save(`invoice-${id}.pdf`);
+}
+
+// ================= PRINT (BEAUTIFUL) =================
+export function printInvoice({
+  id,
+  items,
+  customer,
+  final,
+  paid,
+  due,
+}) {
+  const win = window.open("", "_blank");
+
+  win.document.write(`
+    <html>
+      <head>
+        <title>Invoice</title>
+
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+
+        <style>
+          body {
+            font-family: 'Inter', sans-serif;
+            padding: 30px;
+            color: #000;
+          }
+
+          .container {
+            max-width: 800px;
+            margin: auto;
+          }
+
+          .header {
+            display: flex;
+            justify-content: space-between;
+            border-bottom: 2px solid #000;
+            margin-bottom: 20px;
+          }
+
+          .title {
+            font-size: 22px;
+            font-weight: 600;
+          }
+
+          .meta {
+            font-size: 12px;
+            text-align: right;
+          }
+
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+          }
+
+          th {
+            border-bottom: 2px solid #000;
+            padding: 8px;
+            text-align: left;
+          }
+
+          td {
+            padding: 8px;
+            border-bottom: 1px solid #ddd;
+          }
+
+          .right {
+            text-align: right;
+          }
+
+          .summary {
+            margin-top: 20px;
+            width: 250px;
+            margin-left: auto;
+          }
+
+          .summary div {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 6px;
+          }
+
+          .final {
+            font-weight: bold;
+            border-top: 2px solid #000;
+            padding-top: 8px;
+          }
+
+          .footer {
+            margin-top: 40px;
+            text-align: center;
+            font-size: 12px;
+            color: #666;
+          }
+        </style>
+      </head>
+
+      <body>
+        <div class="container">
+
+          <div class="header">
+            <div class="title">INVOICE #${id.slice(0,6)}</div>
+            <div class="meta">${new Date().toLocaleString()}</div>
+          </div>
+
+          <p><b>Customer:</b> ${customer.name}</p>
+
+          <table>
             <tr>
-              <td style="border:3px solid black; padding:10px;">
-                ${i.name} ${i.size}
-              </td>
-              <td style="border:3px solid black; padding:10px;">
-                ${i.batch_name}
-              </td>
-              <td style="border:3px solid black; padding:10px; text-align:center;">
-                ${i.qty}
-              </td>
-              <td style="border:3px solid black; padding:10px;">
-                ₹${i.sell_price}
-              </td>
-              <td style="border:3px solid black; padding:10px;">
-                ₹${i.qty * i.sell_price}
-              </td>
+              <th>Product</th>
+              <th>Batch</th>
+              <th class="right">Qty</th>
+              <th class="right">Price</th>
+              <th class="right">Total</th>
             </tr>
-          `).join("")}
-        </tbody>
-      </table>
 
-      <div style="margin-top:15px;">
-        <p><b>Total:</b> ₹${total}</p>
+            ${items.map(i => `
+              <tr>
+                <td>${i.name} (${i.size})</td>
+                <td>${i.batch_name}</td>
+                <td class="right">${i.qty}</td>
+                <td class="right">₹${i.sell_price}</td>
+                <td class="right">₹${i.qty * i.sell_price}</td>
+              </tr>
+            `).join("")}
+          </table>
 
-        ${discount > 0 ? `<p><b>Discount:</b> ₹${discount}</p>` : ""}
+          <div class="summary">
+            <div class="final">
+              <span>Final</span>
+              <span>₹${final}</span>
+            </div>
 
-        <p><b>Final:</b> ₹${final}</p>
-        <p><b>Paid:</b> ₹${paid}</p>
-        <p><b>Due:</b> ₹${due}</p>
-      </div>
+            <div>
+              <span>Paid</span>
+              <span>₹${paid}</span>
+            </div>
 
-    </div>
-  `;
+            ${due > 0 ? `
+              <div>
+                <span>Due</span>
+                <span>₹${due}</span>
+              </div>
+            ` : ""}
+          </div>
 
-  html2pdf()
-    .set({
-      margin: 5,
-      filename: `invoice-${id}.pdf`,
-      html2canvas: { scale: 2 }, // 🔥 makes borders visible
-    })
-    .from(element)
-    .save();
+          <div class="footer">
+            Thank you for your business!
+          </div>
+
+        </div>
+
+        <script>
+          window.onload = () => window.print();
+        </script>
+
+      </body>
+    </html>
+  `);
+
+  win.document.close();
 }

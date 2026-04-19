@@ -1,6 +1,7 @@
 import { supabase } from "../../supabaseClient";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { formatIST, nowIST } from "../../utils/time";
 
 // ================= SAVE =================
 export async function saveSaleService({
@@ -131,17 +132,18 @@ export function downloadInvoicePDF({
   discount = 0,
 }) {
   const doc = new jsPDF();
-  const now = new Date();
+//   const now = new Date();
+const now = nowIST();
 
-  doc.setFontSize(16);
-  doc.text(`INVOICE #${id.slice(0, 6)}`, 14, 15);
 
-  doc.setFontSize(10);
-  doc.text(now.toLocaleString(), 150, 12);
+doc.setFontSize(16);
+doc.text(`INVOICE #${id.slice(0, 6)}`, 14, 15);
 
-  doc.setFontSize(12);
-  doc.text(`Customer: ${customer.name}`, 14, 25);
+doc.setFontSize(10);
+doc.text(now, 150, 12); // ✅ IST time
 
+doc.setFontSize(12);
+doc.text(`Customer: ${customer.name}`, 14, 25);
   autoTable(doc, {
     startY: 30,
     head: [["Product", "Batch", "Qty", "Price", "Total"]],
@@ -200,7 +202,7 @@ export function printInvoice({
 
       <body>
         <h2>Invoice #${id.slice(0,6)}</h2>
-        <p>${new Date().toLocaleString()}</p>
+       <p>${formatIST(new Date())}</p>
         <p><b>Customer:</b> ${customer.name}</p>
 
         <table>

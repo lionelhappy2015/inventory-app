@@ -5,6 +5,7 @@ import * as XLSX from "xlsx";
 
 export default function SalesHistory({ user }) {
   const [sales, setSales] = useState([]);
+  const [grouped, setGrouped] = useState({});
   const [selectedSale, setSelectedSale] = useState(null);
 
   const [from, setFrom] = useState("");
@@ -26,16 +27,37 @@ export default function SalesHistory({ user }) {
 
     const { data } = await query;
     setSales(data || []);
+    groupByDate(data || []);
   }
 
   // =====================
-  // EXPORT EXCEL
+  // GROUP BY DATE
+  // =====================
+  function groupByDate(data) {
+    const groupedData = {};
+
+    data.forEach((sale) => {
+      const date = new Date(sale.created_at).toLocaleDateString();
+
+      if (!groupedData[date]) {
+        groupedData[date] = {
+          total: 0,
+          bills: [],
+        };
+      }
+
+      groupedData[date].total += Number(sale.final_amount);
+      groupedData[date].bills.push(sale);
+    });
+
+    setGrouped(groupedData);
+  }
+
+  // =====================
+  // EXPORT
   // =====================
   async function exportExcel() {
-    if (sales.length === 0) {
-      alert("No data");
-      return;
-    }
+    if (sales.length === 0) return;
 
     const wb = XLSX.utils.book_new();
 
@@ -55,10 +77,7 @@ export default function SalesHistory({ user }) {
       }));
 
       rows.push({});
-      rows.push({
-        Product: "TOTAL",
-        Total: sale.final_amount,
-      });
+      rows.push({ Product: "TOTAL", Total: sale.final_amount });
 
       const ws = XLSX.utils.json_to_sheet(rows);
 
@@ -93,31 +112,37 @@ export default function SalesHistory({ user }) {
         <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
         <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
         <button onClick={fetchSales}>Filter</button>
-        <button onClick={exportExcel}>Export Excel</button>
+        <button onClick={exportExcel}>Export</button>
       </div>
 
-      {/* LIST */}
-      <div style={styles.list}>
-        {sales.map((s) => (
-          <div
-            key={s.id}
-            style={styles.card}
-            onClick={() => setSelectedSale(s)}
-          >
-            <div>
-              <strong>Invoice #{s.id.slice(0, 6)}</strong>
-              <p>{s.customers?.name}</p>
-            </div>
-
-            <div style={{ textAlign: "right" }}>
-              <p>₹{s.final_amount}</p>
-              <p style={{ fontSize: 12 }}>
-                {new Date(s.created_at).toLocaleDateString()}
-              </p>
-            </div>
+      {/* GROUPED LIST */}
+      {Object.keys(grouped).map((date) => (
+        <div key={date} style={styles.dayBlock}>
+          {/* DATE HEADER */}
+          <div style={styles.dayHeader}>
+            <strong>{date}</strong>
+            <span>₹{grouped[date].total}</span>
           </div>
-        ))}
-      </div>
+
+          {/* BILLS */}
+          {grouped[date].bills.map((s) => (
+            <div
+              key={s.id}
+              style={styles.card}
+              onClick={() => setSelectedSale(s)}
+            >
+              <div>
+                <strong>Invoice #{s.id.slice(0, 6)}</strong>
+                <p>{s.customers?.name}</p>
+              </div>
+
+              <div style={{ textAlign: "right" }}>
+                <p>₹{s.final_amount}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      ))}
     </div>
   );
 }
@@ -129,17 +154,27 @@ const styles = {
     marginBottom: 15,
     flexWrap: "wrap",
   },
-  list: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 10,
+
+  dayBlock: {
+    marginBottom: 20,
   },
-  card: {
-    background: "#fff",
-    padding: 15,
-    borderRadius: 10,
+
+  dayHeader: {
     display: "flex",
     justifyContent: "space-between",
+    marginBottom: 10,
+    background: "#eef2f7",
+    padding: 10,
+    borderRadius: 8,
+  },
+
+  card: {
+    background: "#fff",
+    padding: 12,
+    borderRadius: 8,
+    display: "flex",
+    justifyContent: "space-between",
+    marginBottom: 8,
     cursor: "pointer",
   },
 };

@@ -13,6 +13,8 @@ import Customers from "../pages/Customers";
 import EditInvoiceSelect from "../pages/editStock/EditInvoiceSelect";
 import SalesFlow from "../pages/salesPage/SalesFlow";
 import SaleLogsPage from "../pages/SaleLogsPage";
+import SalesDashboard from "../pages/SalesDashboard";
+import InventoryDashboard from "../pages/InventoryDashboard";
 
 export default function Layout({ user }) {
   const [page, setPage] = useState("dashboard");
@@ -26,6 +28,8 @@ export default function Layout({ user }) {
     if (page === "salesHistory") return <SalesHistory user={user} />;
     if (page === "editStock") return <EditInvoiceSelect user={user} />;
     if (page === "sale_logs") return <SaleLogsPage user={user} />;
+    if (page === "salesDashboard") return <SalesDashboard user={user} />;
+    if (page === "inventoryDashboard") return <InventoryDashboard user={user} />;
     
     
 
@@ -41,7 +45,11 @@ export default function Layout({ user }) {
       {/* SIDEBAR */}
       <div style={styles.sidebar}>
         <h2 style={{ color: "#fff" }}>Inventory</h2>
-
+        <NavButton
+  label="Inventory Dashboard"
+  active={page === "inventoryDashboard"}
+  onClick={() => setPage("inventoryDashboard")}
+/>
         <NavButton label="Dashboard" active={page === "dashboard"} onClick={() => setPage("dashboard")} />
         <NavButton label="Products" active={page === "products"} onClick={() => setPage("products")} />
         <NavButton label="Batch" active={page === "batch"} onClick={() => setPage("batch")} />
@@ -60,6 +68,11 @@ export default function Layout({ user }) {
   onClick={() => setPage("customers")}
 />
 
+<NavButton
+  label="Sales Dashboard"
+  active={page === "salesDashboard"}
+  onClick={() => setPage("salesDashboard")}
+/>
 
 <NavButton
   label="Sales History"

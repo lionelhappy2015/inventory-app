@@ -11,9 +11,8 @@ export default function SalesInvoicePage({ user, customer, onBack }) {
   const [items, setItems] = useState([]);
   const [batches, setBatches] = useState([]);
 
-  const [selectedProduct, setSelectedProduct] = useState(null);
-  const [productBatches, setProductBatches] = useState([]);
-  const [showSelector, setShowSelector] = useState(true);
+  const [latestBatchMap, setLatestBatchMap] = useState({});
+  const [productBatchMap, setProductBatchMap] = useState({});
 
   const [discount, setDiscount] = useState("");
   const [paid, setPaid] = useState("");
@@ -22,7 +21,6 @@ export default function SalesInvoicePage({ user, customer, onBack }) {
   const [savedSaleId, setSavedSaleId] = useState(null);
   const [isPaidEdited, setIsPaidEdited] = useState(false);
 
-  // 🔍 NEW (SEARCH)
   const [productSearch, setProductSearch] = useState("");
   const [showProductList, setShowProductList] = useState(false);
 
@@ -36,14 +34,34 @@ export default function SalesInvoicePage({ user, customer, onBack }) {
       .select("*, products(id,name,size)")
       .eq("user_id", user.id);
 
-    setBatches(data || []);
+    const all = data || [];
+    setBatches(all);
+
+    const grouped = {};
+    const latest = {};
+
+    for (let b of all) {
+      if (!grouped[b.product_id]) grouped[b.product_id] = [];
+      grouped[b.product_id].push(b);
+
+      if (b.remaining_qty > 0) {
+        if (
+          !latest[b.product_id] ||
+          new Date(b.created_at) > new Date(latest[b.product_id].created_at)
+        ) {
+          latest[b.product_id] = b;
+        }
+      }
+    }
+
+    setProductBatchMap(grouped);
+    setLatestBatchMap(latest);
   }
 
   const products = [
     ...new Map(batches.map((b) => [b.product_id, b.products])).values(),
   ];
 
-  // 🔍 FILTER PRODUCTS
   const filteredProducts = products.filter((p) =>
     `${p.name} ${p.size}`
       .toLowerCase()
@@ -64,7 +82,7 @@ export default function SalesInvoicePage({ user, customer, onBack }) {
         batch_id: batch.id,
         qty: "",
         sell_price: batch.sell_price,
-        buy_price: batch.buy_price, // ✅ IMPORTANT
+        buy_price: batch.buy_price,
         name: batch.products.name,
         size: batch.products.size,
         batch_name: batch.batch_name,
@@ -102,12 +120,14 @@ export default function SalesInvoicePage({ user, customer, onBack }) {
     0
   );
 
-  const totalProfit = items.reduce((sum, i) => {
+  // ✅ BASE PROFIT
+  const baseProfit = items.reduce((sum, i) => {
     const qty = Number(i.qty) || 0;
-    const sell = Number(i.sell_price) || 0;
-    const buy = Number(i.buy_price) || 0;
-    return sum + (sell - buy) * qty;
+    return sum + (i.sell_price - i.buy_price) * qty;
   }, 0);
+
+  // ✅ FINAL PROFIT (DISCOUNT ADJUSTED)
+  const totalProfit = Math.max(0, baseProfit - (Number(discount) || 0));
 
   const discountNum = Number(discount) || 0;
   const paidNum = Number(paid) || 0;
@@ -117,9 +137,7 @@ export default function SalesInvoicePage({ user, customer, onBack }) {
   const due = Math.max(0, final - safePaid);
 
   useEffect(() => {
-    if (!isPaidEdited) {
-      setPaid(total);
-    }
+    if (!isPaidEdited) setPaid(total);
   }, [total]);
 
   async function saveSale() {
@@ -133,7 +151,6 @@ export default function SalesInvoicePage({ user, customer, onBack }) {
         final,
         paid: safePaid,
         due,
-        total_profit: totalProfit,
       });
 
       alert("Saved ✅");
@@ -150,70 +167,56 @@ export default function SalesInvoicePage({ user, customer, onBack }) {
         <button onClick={onBack}>← Change</button>
       </div>
 
-      {showSelector && (
-        <>
-          {/* 🔍 SEARCH PRODUCT */}
-          <div style={{ position: "relative" }}>
-            <input
-              style={styles.select}
-              placeholder="Search Product..."
-              value={productSearch}
-              onChange={(e) => {
-                setProductSearch(e.target.value);
-                setShowProductList(true);
-              }}
-              onFocus={() => setShowProductList(true)}
-            />
+      {/* 🔍 SEARCH */}
+      <div style={{ position: "relative" }}>
+        <input
+          style={styles.select}
+          placeholder="Search Product..."
+          value={productSearch}
+          onChange={(e) => {
+            setProductSearch(e.target.value);
+            setShowProductList(true);
+          }}
+          onFocus={() => setShowProductList(true)}
+        />
 
-            {showProductList && productSearch && (
-              <div style={styles.dropdown}>
-                {filteredProducts.slice(0, 20).map((p) => (
-                  <div
-                    key={p.id}
-                    style={styles.dropdownItem}
-                    onClick={() => {
-                      setSelectedProduct(p);
-                      setProductBatches(
-                        batches.filter((b) => b.product_id === p.id)
-                      );
-                      setProductSearch(`${p.name} (${p.size})`);
-                      setShowProductList(false);
-                    }}
-                  >
-                    {p.name} ({p.size})
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+        {showProductList && productSearch && (
+          <div style={styles.dropdown}>
+            {filteredProducts.slice(0, 20).map((p) => (
+              <div
+                key={p.id}
+                style={styles.dropdownItem}
+                onClick={() => {
+                  const available = productBatchMap[p.id] || [];
+                  const valid = available.filter(
+                    (b) => b.remaining_qty > 0
+                  );
 
-          {/* BATCH SELECT */}
-          {selectedProduct && (
-            <select
-              style={styles.select}
-              onChange={(e) => {
-                const b = productBatches.find(
-                  (b) => b.id === e.target.value
-                );
-                if (b) {
-                  addItem(b);
-                  setShowSelector(false);
-                  setSelectedProduct(null);
+                  if (!valid.length) {
+                    alert("Out of stock");
+                    return;
+                  }
+
+                  const latestValid = valid.sort(
+                    (a, b) =>
+                      new Date(b.created_at) -
+                      new Date(a.created_at)
+                  )[0];
+
+                  addItem(latestValid);
+
                   setProductSearch("");
-                }
-              }}
-            >
-              <option>Select Batch</option>
-              {productBatches.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.batch_name} | ₹{b.sell_price} | Stock: {b.remaining_qty}
-                </option>
-              ))}
-            </select>
-          )}
-        </>
-      )}
+                  setShowProductList(false);
+                }}
+              >
+                {p.name} ({p.size})
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
+      {/* TABLE */}
       <div style={styles.table}>
         <div style={styles.tableHeader}>
           <span>Product</span>
@@ -226,17 +229,35 @@ export default function SalesInvoicePage({ user, customer, onBack }) {
 
         {items.map((i, idx) => (
           <div key={idx} style={styles.tableRow}>
-            <span>
-              {i.name} ({i.size})
-              <button
-                style={styles.addBtn}
-                onClick={() => setShowSelector(true)}
-              >
-                +
-              </button>
-            </span>
+            <span>{i.name} ({i.size})</span>
 
-            <span>{i.batch_name}</span>
+            <select
+              value={i.batch_id}
+              onChange={(e) => {
+                const newBatch = (productBatchMap[i.product_id] || []).find(
+                  (b) => b.id === e.target.value
+                );
+
+                if (!newBatch) return;
+
+                const updated = [...items];
+                updated[idx] = {
+                  ...updated[idx],
+                  batch_id: newBatch.id,
+                  batch_name: newBatch.batch_name,
+                  sell_price: newBatch.sell_price,
+                  buy_price: newBatch.buy_price,
+                };
+
+                setItems(updated);
+              }}
+            >
+              {(productBatchMap[i.product_id] || []).map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.batch_name}
+                </option>
+              ))}
+            </select>
 
             <input
               style={styles.qtyInput}
@@ -245,7 +266,6 @@ export default function SalesInvoicePage({ user, customer, onBack }) {
               placeholder="Qty"
             />
 
-            {/* ✅ EDITABLE PRICE */}
             <input
               style={{ width: 80 }}
               value={i.sell_price}
@@ -259,12 +279,10 @@ export default function SalesInvoicePage({ user, customer, onBack }) {
         ))}
       </div>
 
+      {/* SUMMARY */}
       <div style={styles.summary}>
         <div>Total: ₹{total}</div>
-
-        <div>
-          <b>Profit:</b> ₹{totalProfit}
-        </div>
+        <div><b>Profit:</b> ₹{totalProfit}</div>
 
         <input
           placeholder="Discount"
@@ -298,36 +316,32 @@ export default function SalesInvoicePage({ user, customer, onBack }) {
 
         {savedSaleId && (
           <>
-            <button
-              onClick={() =>
-                downloadInvoicePDF({
-                  id: savedSaleId,
-                  items,
-                  customer,
-                  total,
-                  final,
-                  paid: safePaid,
-                  due,
-                  discount: discountNum,
-                })
-              }
-            >
+            <button onClick={() =>
+              downloadInvoicePDF({
+                id: savedSaleId,
+                items,
+                customer,
+                total,
+                final,
+                paid: safePaid,
+                due,
+                discount: discountNum,
+              })
+            }>
               Download PDF
             </button>
 
-            <button
-              onClick={() =>
-                printInvoice({
-                  id: savedSaleId,
-                  items,
-                  customer,
-                  total,
-                  final,
-                  paid: safePaid,
-                  due,
-                })
-              }
-            >
+            <button onClick={() =>
+              printInvoice({
+                id: savedSaleId,
+                items,
+                customer,
+                total,
+                final,
+                paid: safePaid,
+                due,
+              })
+            }>
               Print
             </button>
           </>
@@ -341,7 +355,6 @@ const styles = {
   container: { maxWidth: 1000, margin: "auto", padding: 20 },
   header: { display: "flex", justifyContent: "space-between" },
   select: { padding: 10, marginBottom: 10, width: "100%" },
-
   dropdown: {
     position: "absolute",
     background: "#fff",
@@ -351,13 +364,11 @@ const styles = {
     overflowY: "auto",
     zIndex: 10,
   },
-
   dropdownItem: {
     padding: 8,
     cursor: "pointer",
     borderBottom: "1px solid #eee",
   },
-
   table: { marginTop: 20, border: "1px solid #eee" },
   tableHeader: {
     display: "grid",
@@ -372,12 +383,6 @@ const styles = {
     borderTop: "1px solid #eee",
   },
   qtyInput: { width: 60 },
-  addBtn: {
-    marginLeft: 10,
-    borderRadius: "50%",
-    background: "#000",
-    color: "#fff",
-  },
   summary: { marginTop: 20, display: "flex", flexDirection: "column", gap: 10 },
   saveBtn: { padding: 10, background: "#000", color: "#fff" },
 };

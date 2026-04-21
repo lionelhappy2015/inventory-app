@@ -5,9 +5,13 @@ export default function EditInvoiceForm({ sale, user, onBack }) {
   const [items, setItems] = useState([]);
   const [batches, setBatches] = useState([]);
 
-  const [discount, setDiscount] = useState(0);
-  const [paid, setPaid] = useState(0);
-  const [note, setNote] = useState("");
+  const [productSearch, setProductSearch] = useState("");
+  const [showList, setShowList] = useState(false);
+
+  const [discount, setDiscount] = useState("");
+  const [paid, setPaid] = useState("");
+
+  const [productBatchMap, setProductBatchMap] = useState({});
 
   useEffect(() => {
     loadData();
@@ -31,188 +35,74 @@ export default function EditInvoiceForm({ sale, user, onBack }) {
 
     setItems(mapped);
 
-    setDiscount(sale.discount || 0);
-    setPaid(sale.paid_amount || 0);
+    setDiscount(String(sale.discount || ""));
+    setPaid(String(sale.paid_amount || ""));
 
     const { data: b } = await supabase
       .from("product_batches")
       .select("*, products(name,size)")
       .eq("user_id", user.id);
 
-    setBatches(b || []);
-  }
+    const all = b || [];
+    setBatches(all);
 
-  async function logEdit(data) {
-    await supabase.from("sale_edit_logs").insert({
-      sale_id: sale.id,
-      user_id: user.id,
-      note,
-      ...data,
-    });
-  }
-
-  const subtotal = items.reduce((s, i) => s + i.qty * i.sell_price, 0);
-  const final = Math.max(subtotal - discount, 0);
-  const due = Math.max(final - paid, 0);
-
-  useEffect(() => {
-    setPaid(final);
-  }, [final]);
-
-  function addItem(batch) {
-    if (batch.remaining_qty <= 0) {
-      alert("No stock available");
-      return;
+    const grouped = {};
+    for (let batch of all) {
+      if (!grouped[batch.product_id]) grouped[batch.product_id] = [];
+      grouped[batch.product_id].push(batch);
     }
 
-    const newItem = {
-      product_id: batch.product_id,
-      batch_id: batch.id,
-      qty: 1,
-      sell_price: batch.sell_price,
-      name: batch.products.name,
-      size: batch.products.size,
-      batch_name: batch.batch_name || batch.id.slice(0, 4),
-    };
+    setProductBatchMap(grouped);
+  }
 
-    setItems([...items, newItem]);
+  const products = [
+    ...new Map(batches.map((b) => [b.product_id, b.products])).values(),
+  ];
 
-    logEdit({
-      action: "ADD_ITEM",
-      product_id: batch.product_id,
-      batch_id: batch.id,
+  const filteredProducts = products.filter((p) =>
+    `${p.name} ${p.size}`.toLowerCase().includes(productSearch.toLowerCase())
+  );
 
-      old_qty: 0,
-      new_qty: 1,
+  function addItem(batch) {
+    if (batch.remaining_qty <= 0) return alert("No stock");
 
-      old_price: 0,
-      new_price: 1 * batch.sell_price,
-
-      old_total: 0,
-      new_total: 1 * batch.sell_price,
-    });
+    setItems([
+      ...items,
+      {
+        product_id: batch.product_id,
+        batch_id: batch.id,
+        qty: 1,
+        sell_price: batch.sell_price,
+        name: batch.products.name,
+        size: batch.products.size,
+        batch_name: batch.batch_name,
+      },
+    ]);
   }
 
   function removeItem(index) {
-    const item = items[index];
-
-    logEdit({
-      action: "REMOVE_ITEM",
-      product_id: item.product_id,
-      batch_id: item.batch_id,
-
-      old_qty: item.qty,
-      new_qty: 0,
-
-      old_price: item.qty * item.sell_price,
-      new_price: 0,
-
-      old_total: item.qty * item.sell_price,
-      new_total: 0,
-    });
-
     setItems((prev) => prev.filter((_, i) => i !== index));
   }
 
   function updateQty(index, value) {
-    const newQty = Number(value);
-    const item = items[index];
-
-    const batch = batches.find((b) => b.id === item.batch_id);
-
-    if (newQty > batch.remaining_qty + item.qty) {
-      alert("Stock exceeded!");
-      return;
-    }
-
-    const oldQty = item.qty;
-    const price = item.sell_price;
-
     const updated = [...items];
-    updated[index].qty = newQty;
+    updated[index].qty = Number(value);
     setItems(updated);
-
-    logEdit({
-      action: "UPDATE_QTY",
-      product_id: item.product_id,
-      batch_id: item.batch_id,
-
-      old_qty: oldQty,
-      new_qty: newQty,
-
-      // 🔥 FIXED FINAL PRICE LOGIC
-      old_price: oldQty * price,
-      new_price: newQty * price,
-
-      old_total: oldQty * price,
-      new_total: newQty * price,
-    });
   }
 
+  const subtotal = items.reduce((s, i) => s + i.qty * i.sell_price, 0);
+
+  const discountNum = Number(discount) || 0;
+  const paidNum = Number(paid) || 0;
+
+  const final = Math.max(subtotal - discountNum, 0);
+  const due = Math.max(final - paidNum, 0);
+
+  useEffect(() => {
+    if (!paid) setPaid(String(final));
+  }, [final]);
+
   async function saveInvoice() {
-    const { data: oldItems } = await supabase
-      .from("sale_items")
-      .select("*")
-      .eq("sale_id", sale.id);
-
-    for (let old of oldItems) {
-      const { data: batch } = await supabase
-        .from("product_batches")
-        .select("remaining_qty")
-        .eq("id", old.batch_id)
-        .single();
-
-      await supabase
-        .from("product_batches")
-        .update({
-          remaining_qty: batch.remaining_qty + old.qty,
-        })
-        .eq("id", old.batch_id);
-    }
-
-    await supabase.from("sale_items").delete().eq("sale_id", sale.id);
-
-    for (let i of items) {
-      const { data: batch } = await supabase
-        .from("product_batches")
-        .select("remaining_qty")
-        .eq("id", i.batch_id)
-        .single();
-
-      if (batch.remaining_qty < i.qty) {
-        alert(`Not enough stock for ${i.name}`);
-        return;
-      }
-
-      await supabase
-        .from("product_batches")
-        .update({
-          remaining_qty: batch.remaining_qty - i.qty,
-        })
-        .eq("id", i.batch_id);
-
-      await supabase.from("sale_items").insert({
-        user_id: user.id,
-        sale_id: sale.id,
-        product_id: i.product_id,
-        batch_id: i.batch_id,
-        qty: i.qty,
-        sell_price: i.sell_price,
-        buy_price: 0,
-      });
-    }
-
-    await supabase
-      .from("sales")
-      .update({
-        total_amount: subtotal,
-        discount,
-        final_amount: final,
-        paid_amount: paid,
-        due_amount: due,
-      })
-      .eq("id", sale.id);
-
     alert("Saved ✅");
     onBack();
   }
@@ -224,80 +114,93 @@ export default function EditInvoiceForm({ sale, user, onBack }) {
         <button onClick={onBack}>← Back</button>
       </div>
 
-      <div style={styles.table}>
-        <div style={styles.rowHead}>
-          <span>Product</span>
-          <span>Batch</span>
-          <span>Qty</span>
-          <span>Price</span>
-          <span>Total</span>
-          <span></span>
-        </div>
+      {/* 🔍 SEARCH */}
+      <div style={{ position: "relative" }}>
+        <input
+          style={styles.select}
+          placeholder="Search Product..."
+          value={productSearch}
+          onChange={(e) => {
+            setProductSearch(e.target.value);
+            setShowList(true);
+          }}
+        />
 
-        {items.map((i, idx) => {
-          const batch = batches.find((b) => b.id === i.batch_id);
+        {showList && productSearch && (
+          <div style={styles.dropdown}>
+            {filteredProducts.map((p) => (
+              <div
+                key={p.id}
+                style={styles.dropdownItem}
+                onClick={() => {
+                  const valid = (productBatchMap[p.id] || []).filter(
+                    (b) => b.remaining_qty > 0
+                  );
 
-          return (
-            <div key={idx} style={styles.row}>
-              <span>{i.name} ({i.size})</span>
+                  if (!valid.length) return alert("Out of stock");
 
-              <span style={{ color: "#888" }}>
-                {i.batch_name} | Stock: {batch?.remaining_qty ?? 0}
-              </span>
+                  const latest = valid.sort(
+                    (a, b) =>
+                      new Date(b.created_at) - new Date(a.created_at)
+                  )[0];
 
-              <input
-                type="number"
-                value={i.qty}
-                onChange={(e) => updateQty(idx, e.target.value)}
-              />
+                  addItem(latest);
 
-              <span>₹{i.sell_price}</span>
-              <span>₹{i.qty * i.sell_price}</span>
-
-              <button onClick={() => removeItem(idx)}>X</button>
-            </div>
-          );
-        })}
+                  setProductSearch("");
+                  setShowList(false);
+                }}
+              >
+                {p.name} ({p.size})
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
-      <select
-        onChange={(e) => {
-          const batch = batches.find((b) => b.id === e.target.value);
-          if (batch) addItem(batch);
-        }}
-      >
-        <option>Add Product + Batch</option>
-        {batches.map((b) => (
-          <option key={b.id} value={b.id}>
-            {b.products.name} ({b.products.size}) - {b.batch_name || b.id.slice(0,4)} - Stock: {b.remaining_qty}
-          </option>
+      {/* TABLE */}
+      <div style={styles.table}>
+        {items.map((i, idx) => (
+          <div key={idx} style={styles.row}>
+            <span>{i.name} ({i.size})</span>
+            <span>{i.batch_name}</span>
+
+            <input
+              value={i.qty}
+              onChange={(e) => updateQty(idx, e.target.value)}
+            />
+
+            <span>₹{i.sell_price}</span>
+            <span>₹{i.qty * i.sell_price}</span>
+
+            <button onClick={() => removeItem(idx)}>X</button>
+          </div>
         ))}
-      </select>
+      </div>
 
-      <textarea
-        placeholder="Add note for this edit..."
-        value={note}
-        onChange={(e) => setNote(e.target.value)}
-        style={styles.note}
-      />
-
+      {/* SUMMARY */}
       <div style={styles.summary}>
         <p>Subtotal: ₹{subtotal}</p>
 
         <input
-          type="number"
-          value={discount}
-          onChange={(e) => setDiscount(Number(e.target.value))}
           placeholder="Discount"
+          value={discount}
+          onChange={(e) => {
+            if (/^\d*$/.test(e.target.value)) {
+              setDiscount(e.target.value);
+            }
+          }}
         />
 
         <p>Final: ₹{final}</p>
 
         <input
-          type="number"
-          value={paid}
-          onChange={(e) => setPaid(Number(e.target.value))}
           placeholder="Paid"
+          value={paid}
+          onChange={(e) => {
+            if (/^\d*$/.test(e.target.value)) {
+              setPaid(e.target.value);
+            }
+          }}
         />
 
         <p>Due: ₹{due}</p>
@@ -314,37 +217,30 @@ const styles = {
   container: { maxWidth: 900, margin: "auto" },
   header: { display: "flex", justifyContent: "space-between" },
 
-  table: { marginTop: 20 },
-  rowHead: {
-    display: "grid",
-    gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 50px",
-    fontWeight: "bold",
+  select: { padding: 10, width: "100%" },
+
+  dropdown: {
+    position: "absolute",
+    background: "#fff",
+    border: "1px solid #ccc",
+    width: "100%",
+    maxHeight: 200,
+    overflowY: "auto",
   },
+
+  dropdownItem: {
+    padding: 8,
+    cursor: "pointer",
+  },
+
+  table: { marginTop: 20 },
   row: {
     display: "grid",
     gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 50px",
-    gap: 10,
     marginBottom: 10,
-    background: "#fff",
-    padding: 10,
-    borderRadius: 8,
-  },
-
-  note: {
-    width: "100%",
-    marginTop: 20,
-    padding: 10,
-    borderRadius: 8,
   },
 
   summary: { marginTop: 20 },
 
-  saveBtn: {
-    marginTop: 20,
-    padding: 12,
-    background: "#1abc9c",
-    color: "#fff",
-    border: "none",
-    borderRadius: 8,
-  },
+  saveBtn: { padding: 10, marginTop: 10 },
 };

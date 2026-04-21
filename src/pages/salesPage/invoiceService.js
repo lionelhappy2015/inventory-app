@@ -14,7 +14,7 @@ export async function saveSaleService({
   paid,
   due,
 }) {
-  // ⛔ prevent duplicate fast clicks
+  // 🔴 PREVENT DUPLICATE
   const { data: lastSale } = await supabase
     .from("sales")
     .select("created_at")
@@ -31,38 +31,45 @@ export async function saveSaleService({
     }
   }
 
-  // ================= PROFIT CALC =================
-  let totalProfit = 0;
-  const processedItems = [];
+  // ================= 🔥 FETCH ALL BATCHES IN ONE CALL =================
+  const batchIds = items.map((i) => i.batch_id);
 
-  for (let i of items) {
+  const { data: batches, error: batchError } = await supabase
+    .from("product_batches")
+    .select("id, remaining_qty, buy_price")
+    .in("id", batchIds);
+
+  if (batchError) throw new Error("Batch fetch failed");
+
+  const batchMap = Object.fromEntries(
+    batches.map((b) => [b.id, b])
+  );
+
+  // ================= PROCESS ITEMS =================
+  let totalProfit = 0;
+
+  const processedItems = items.map((i) => {
+    const batch = batchMap[i.batch_id];
     const qty = Number(i.qty || 0);
 
-    const { data: batch } = await supabase
-      .from("product_batches")
-      .select("remaining_qty, buy_price")
-      .eq("id", i.batch_id)
-      .single();
-
-    if (batch.remaining_qty < qty) {
+    if (!batch || batch.remaining_qty < qty) {
       throw new Error("Stock issue detected");
     }
 
     const buy = Number(batch.buy_price || 0);
     const sell = Number(i.sell_price || 0);
 
-    const itemProfit = (sell - buy) * qty;
+    const profit = (sell - buy) * qty;
+    totalProfit += profit;
 
-    totalProfit += itemProfit;
-
-    processedItems.push({
+    return {
       ...i,
       qty,
       buy_price: buy,
-      profit: itemProfit,
-      remaining_qty: batch.remaining_qty,
-    });
-  }
+      profit,
+      new_qty: batch.remaining_qty - qty,
+    };
+  });
 
   // ================= PAYMENT STATUS =================
   let payment_status = "DUE";
@@ -70,53 +77,55 @@ export async function saveSaleService({
   else if (paid > 0) payment_status = "PARTIAL";
 
   // ================= SAVE SALE =================
-  const { data: sale, error } = await supabase
+  const { data: sale, error: saleError } = await supabase
     .from("sales")
     .insert([
       {
         user_id: user.id,
         customer_id: customer.id,
-
         total_amount: total,
         discount,
         final_amount: final,
-
         paid_amount: paid,
         due_amount: due,
         payment_status,
-
-        total_profit: totalProfit, // 🔥 FIXED
+        total_profit: totalProfit,
       },
     ])
     .select()
     .single();
 
-  if (error) throw new Error("Error saving sale");
+  if (saleError) throw new Error("Error saving sale");
 
-  // ================= SAVE ITEMS + UPDATE STOCK =================
-  for (let i of processedItems) {
-    // update stock
-    await supabase
-      .from("product_batches")
-      .update({
-        remaining_qty: i.remaining_qty - i.qty,
-      })
-      .eq("id", i.batch_id);
+  // ================= 🔥 BULK INSERT ITEMS =================
+  const saleItems = processedItems.map((i) => ({
+    user_id: user.id,
+    sale_id: sale.id,
+    product_id: i.product_id,
+    batch_id: i.batch_id,
+    qty: i.qty,
+    sell_price: i.sell_price,
+    buy_price: i.buy_price,
+    profit: i.profit,
+  }));
 
-    // insert sale item
-    await supabase.from("sale_items").insert({
-      user_id: user.id,
-      sale_id: sale.id,
-      product_id: i.product_id,
-      batch_id: i.batch_id,
+  const { error: itemError } = await supabase
+    .from("sale_items")
+    .insert(saleItems);
 
-      qty: i.qty,
-      sell_price: i.sell_price,
-      buy_price: i.buy_price,
+  if (itemError) throw new Error("Item insert failed");
 
-      profit: i.profit, // 🔥 NEW COLUMN USED
-    });
-  }
+  // ================= 🔥 PARALLEL STOCK UPDATE =================
+  await Promise.all(
+    processedItems.map((i) =>
+      supabase
+        .from("product_batches")
+        .update({
+          remaining_qty: i.new_qty,
+        })
+        .eq("id", i.batch_id)
+    )
+  );
 
   return sale.id;
 }
@@ -132,18 +141,17 @@ export function downloadInvoicePDF({
   discount = 0,
 }) {
   const doc = new jsPDF();
-//   const now = new Date();
-const now = nowIST();
+  const now = nowIST();
 
+  doc.setFontSize(16);
+  doc.text(`INVOICE #${id.slice(0, 6)}`, 14, 15);
 
-doc.setFontSize(16);
-doc.text(`INVOICE #${id.slice(0, 6)}`, 14, 15);
+  doc.setFontSize(10);
+  doc.text(now, 150, 12);
 
-doc.setFontSize(10);
-doc.text(now, 150, 12); // ✅ IST time
+  doc.setFontSize(12);
+  doc.text(`Customer: ${customer.name}`, 14, 25);
 
-doc.setFontSize(12);
-doc.text(`Customer: ${customer.name}`, 14, 25);
   autoTable(doc, {
     startY: 30,
     head: [["Product", "Batch", "Qty", "Price", "Total"]],
@@ -202,7 +210,7 @@ export function printInvoice({
 
       <body>
         <h2>Invoice #${id.slice(0,6)}</h2>
-       <p>${formatIST(new Date())}</p>
+        <p>${formatIST(new Date())}</p>
         <p><b>Customer:</b> ${customer.name}</p>
 
         <table>

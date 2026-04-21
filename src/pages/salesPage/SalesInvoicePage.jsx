@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../../supabaseClient";
 
-
 import {
   saveSaleService,
   downloadInvoicePDF,
@@ -21,9 +20,11 @@ export default function SalesInvoicePage({ user, customer, onBack }) {
   const [note, setNote] = useState("");
 
   const [savedSaleId, setSavedSaleId] = useState(null);
-
-  // 🔥 NEW (for smart paid behavior)
   const [isPaidEdited, setIsPaidEdited] = useState(false);
+
+  // 🔍 NEW (SEARCH)
+  const [productSearch, setProductSearch] = useState("");
+  const [showProductList, setShowProductList] = useState(false);
 
   useEffect(() => {
     loadBatches();
@@ -42,6 +43,13 @@ export default function SalesInvoicePage({ user, customer, onBack }) {
     ...new Map(batches.map((b) => [b.product_id, b.products])).values(),
   ];
 
+  // 🔍 FILTER PRODUCTS
+  const filteredProducts = products.filter((p) =>
+    `${p.name} ${p.size}`
+      .toLowerCase()
+      .includes(productSearch.toLowerCase())
+  );
+
   function addItem(batch) {
     if (batch.remaining_qty <= 0) return alert("No stock");
 
@@ -56,6 +64,7 @@ export default function SalesInvoicePage({ user, customer, onBack }) {
         batch_id: batch.id,
         qty: "",
         sell_price: batch.sell_price,
+        buy_price: batch.buy_price, // ✅ IMPORTANT
         name: batch.products.name,
         size: batch.products.size,
         batch_name: batch.batch_name,
@@ -78,6 +87,12 @@ export default function SalesInvoicePage({ user, customer, onBack }) {
     setItems(updated);
   }
 
+  function updatePrice(index, value) {
+    const updated = [...items];
+    updated[index].sell_price = Number(value) || 0;
+    setItems(updated);
+  }
+
   function removeItem(index) {
     setItems((prev) => prev.filter((_, i) => i !== index));
   }
@@ -87,6 +102,13 @@ export default function SalesInvoicePage({ user, customer, onBack }) {
     0
   );
 
+  const totalProfit = items.reduce((sum, i) => {
+    const qty = Number(i.qty) || 0;
+    const sell = Number(i.sell_price) || 0;
+    const buy = Number(i.buy_price) || 0;
+    return sum + (sell - buy) * qty;
+  }, 0);
+
   const discountNum = Number(discount) || 0;
   const paidNum = Number(paid) || 0;
 
@@ -94,7 +116,6 @@ export default function SalesInvoicePage({ user, customer, onBack }) {
   const safePaid = Math.min(paidNum, final);
   const due = Math.max(0, final - safePaid);
 
-  // 🔥 AUTO UPDATE PAID (ONLY IF USER HAS NOT EDITED)
   useEffect(() => {
     if (!isPaidEdited) {
       setPaid(total);
@@ -112,6 +133,7 @@ export default function SalesInvoicePage({ user, customer, onBack }) {
         final,
         paid: safePaid,
         due,
+        total_profit: totalProfit,
       });
 
       alert("Saved ✅");
@@ -130,24 +152,42 @@ export default function SalesInvoicePage({ user, customer, onBack }) {
 
       {showSelector && (
         <>
-          <select
-            style={styles.select}
-            onChange={(e) => {
-              const p = products.find((p) => p.id === e.target.value);
-              setSelectedProduct(p);
-              setProductBatches(
-                batches.filter((b) => b.product_id === e.target.value)
-              );
-            }}
-          >
-            <option>Select Product</option>
-            {products.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name} ({p.size})
-              </option>
-            ))}
-          </select>
+          {/* 🔍 SEARCH PRODUCT */}
+          <div style={{ position: "relative" }}>
+            <input
+              style={styles.select}
+              placeholder="Search Product..."
+              value={productSearch}
+              onChange={(e) => {
+                setProductSearch(e.target.value);
+                setShowProductList(true);
+              }}
+              onFocus={() => setShowProductList(true)}
+            />
 
+            {showProductList && productSearch && (
+              <div style={styles.dropdown}>
+                {filteredProducts.slice(0, 20).map((p) => (
+                  <div
+                    key={p.id}
+                    style={styles.dropdownItem}
+                    onClick={() => {
+                      setSelectedProduct(p);
+                      setProductBatches(
+                        batches.filter((b) => b.product_id === p.id)
+                      );
+                      setProductSearch(`${p.name} (${p.size})`);
+                      setShowProductList(false);
+                    }}
+                  >
+                    {p.name} ({p.size})
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* BATCH SELECT */}
           {selectedProduct && (
             <select
               style={styles.select}
@@ -159,6 +199,7 @@ export default function SalesInvoicePage({ user, customer, onBack }) {
                   addItem(b);
                   setShowSelector(false);
                   setSelectedProduct(null);
+                  setProductSearch("");
                 }
               }}
             >
@@ -204,7 +245,13 @@ export default function SalesInvoicePage({ user, customer, onBack }) {
               placeholder="Qty"
             />
 
-            <span>₹{i.sell_price}</span>
+            {/* ✅ EDITABLE PRICE */}
+            <input
+              style={{ width: 80 }}
+              value={i.sell_price}
+              onChange={(e) => updatePrice(idx, e.target.value)}
+            />
+
             <span>₹{(Number(i.qty) || 0) * i.sell_price}</span>
 
             <button onClick={() => removeItem(idx)}>✕</button>
@@ -215,6 +262,10 @@ export default function SalesInvoicePage({ user, customer, onBack }) {
       <div style={styles.summary}>
         <div>Total: ₹{total}</div>
 
+        <div>
+          <b>Profit:</b> ₹{totalProfit}
+        </div>
+
         <input
           placeholder="Discount"
           value={discount}
@@ -224,7 +275,6 @@ export default function SalesInvoicePage({ user, customer, onBack }) {
         <input
           placeholder="Paid"
           value={paid}
-          maxLength={10}
           onChange={(e) => {
             if (/^\d*$/.test(e.target.value)) {
               setIsPaidEdited(true);
@@ -233,12 +283,8 @@ export default function SalesInvoicePage({ user, customer, onBack }) {
           }}
         />
 
-        <div>
-          <b>Final:</b> ₹{final}
-        </div>
-        <div>
-          <b>Due:</b> ₹{due}
-        </div>
+        <div><b>Final:</b> ₹{final}</div>
+        <div><b>Due:</b> ₹{due}</div>
 
         <textarea
           placeholder="Note"
@@ -295,6 +341,23 @@ const styles = {
   container: { maxWidth: 1000, margin: "auto", padding: 20 },
   header: { display: "flex", justifyContent: "space-between" },
   select: { padding: 10, marginBottom: 10, width: "100%" },
+
+  dropdown: {
+    position: "absolute",
+    background: "#fff",
+    border: "1px solid #ccc",
+    width: "100%",
+    maxHeight: 200,
+    overflowY: "auto",
+    zIndex: 10,
+  },
+
+  dropdownItem: {
+    padding: 8,
+    cursor: "pointer",
+    borderBottom: "1px solid #eee",
+  },
+
   table: { marginTop: 20, border: "1px solid #eee" },
   tableHeader: {
     display: "grid",

@@ -13,6 +13,9 @@ export default function Products({ user }) {
   const [size, setSize] = useState("");
   const [pieces, setPieces] = useState(1);
 
+  // 🔥 NEW STATE (STOCK SORT)
+  const [stockSort, setStockSort] = useState("");
+
   useEffect(() => {
     fetchProducts();
     fetchStock();
@@ -42,24 +45,19 @@ export default function Products({ user }) {
     setStockMap(map);
   }
 
-  // 🔥 SIZE PARSER (IMPORTANT)
+  // 🔥 SIZE PARSER
   function parseSize(size) {
     if (!size) return 0;
 
     const lower = size.toLowerCase();
 
-    if (lower.includes("ml")) {
-      return parseFloat(lower);
-    }
-
-    if (lower.includes("l")) {
-      return parseFloat(lower) * 1000;
-    }
+    if (lower.includes("ml")) return parseFloat(lower);
+    if (lower.includes("l")) return parseFloat(lower) * 1000;
 
     return parseFloat(lower) || 0;
   }
 
-  // 🔥 SORT + SEARCH
+  // 🔥 FILTER + SORT
   const filteredProducts = products
     .filter((p) =>
       `${p.name} ${p.size}`
@@ -67,6 +65,14 @@ export default function Products({ user }) {
         .includes(search.toLowerCase())
     )
     .sort((a, b) => {
+      const stockA = stockMap[a.id] || 0;
+      const stockB = stockMap[b.id] || 0;
+
+      // 🔥 STOCK SORT (PRIORITY)
+      if (stockSort === "asc") return stockA - stockB;
+      if (stockSort === "desc") return stockB - stockA;
+
+      // 🔥 DEFAULT SIZE SORT
       const sizeA = parseSize(a.size);
       const sizeB = parseSize(b.size);
 
@@ -113,7 +119,7 @@ export default function Products({ user }) {
     fetchProducts();
   }
 
-  // 🔥 EXPORT
+  // 🔥 EXPORT (RESPECTS FILTER + SORT)
   function exportProducts() {
     const data = filteredProducts.map((p) => ({
       Product: p.name,
@@ -153,6 +159,30 @@ export default function Products({ user }) {
         onChange={(e) => setSearch(e.target.value)}
         style={styles.input}
       />
+
+      {/* 🔥 STOCK FILTER */}
+      <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+        <button
+          onClick={() => setStockSort("asc")}
+          style={styles.filterBtn}
+        >
+          Stock ↑
+        </button>
+
+        <button
+          onClick={() => setStockSort("desc")}
+          style={styles.filterBtn}
+        >
+          Stock ↓
+        </button>
+
+        <button
+          onClick={() => setStockSort("")}
+          style={styles.filterBtn}
+        >
+          Reset
+        </button>
+      </div>
 
       {/* LIST */}
       {filteredProducts.map((p) => (
@@ -217,12 +247,22 @@ const styles = {
     justifyContent: "space-between",
     marginBottom: 20,
   },
+
   addBtn: {
     background: "#000",
     color: "#fff",
     padding: "8px 12px",
     borderRadius: 6,
   },
+
+  filterBtn: {
+    padding: "6px 10px",
+    borderRadius: 6,
+    border: "1px solid #ccc",
+    background: "#fff",
+    cursor: "pointer",
+  },
+
   card: {
     display: "flex",
     justifyContent: "space-between",
@@ -231,6 +271,7 @@ const styles = {
     marginBottom: 10,
     borderRadius: 6,
   },
+
   overlay: {
     position: "fixed",
     top: 0,
@@ -242,6 +283,7 @@ const styles = {
     justifyContent: "center",
     alignItems: "center",
   },
+
   modal: {
     background: "#fff",
     padding: 20,
@@ -251,12 +293,14 @@ const styles = {
     flexDirection: "column",
     gap: 10,
   },
+
   input: {
     padding: 10,
     borderRadius: 6,
     border: "1px solid #ccc",
     marginBottom: 10,
   },
+
   saveBtn: {
     background: "green",
     color: "#fff",

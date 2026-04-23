@@ -216,7 +216,6 @@ export function printInvoice({
         <table>
           <tr>
             <th>Product</th>
-            <th>Batch</th>
             <th>Qty</th>
             <th>Price</th>
             <th>Total</th>
@@ -225,7 +224,6 @@ export function printInvoice({
           ${items.map(i => `
             <tr>
               <td>${i.name} (${i.size})</td>
-              <td>${i.batch_name}</td>
               <td>${i.qty}</td>
               <td>₹${i.sell_price}</td>
               <td>₹${i.qty * i.sell_price}</td>

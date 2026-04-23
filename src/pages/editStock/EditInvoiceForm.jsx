@@ -4,14 +4,13 @@ import { supabase } from "../../supabaseClient";
 export default function EditInvoiceForm({ sale, user, onBack }) {
   const [items, setItems] = useState([]);
   const [batches, setBatches] = useState([]);
+  const [productBatchMap, setProductBatchMap] = useState({});
 
-  const [productSearch, setProductSearch] = useState("");
+  const [search, setSearch] = useState("");
   const [showList, setShowList] = useState(false);
 
   const [discount, setDiscount] = useState("");
   const [paid, setPaid] = useState("");
-
-  const [productBatchMap, setProductBatchMap] = useState({});
 
   useEffect(() => {
     loadData();
@@ -23,17 +22,19 @@ export default function EditInvoiceForm({ sale, user, onBack }) {
       .select(`*, products(name,size), product_batches(*)`)
       .eq("sale_id", sale.id);
 
-    const mapped = data.map((i) => ({
-      product_id: i.product_id,
-      batch_id: i.batch_id,
-      qty: i.qty,
-      sell_price: i.sell_price,
-      name: i.products.name,
-      size: i.products.size,
-      batch_name: i.product_batches?.batch_name || "Batch",
-    }));
-
-    setItems(mapped);
+    setItems(
+      data.map((i) => ({
+        id: i.id,
+        product_id: i.product_id,
+        batch_id: i.batch_id,
+        qty: i.qty,
+        sell_price: i.sell_price,
+        buy_price: i.buy_price,
+        name: i.products.name,
+        size: i.products.size,
+        batch_name: i.product_batches?.batch_name || "Batch",
+      }))
+    );
 
     setDiscount(String(sale.discount || ""));
     setPaid(String(sale.paid_amount || ""));
@@ -43,15 +44,13 @@ export default function EditInvoiceForm({ sale, user, onBack }) {
       .select("*, products(name,size)")
       .eq("user_id", user.id);
 
-    const all = b || [];
-    setBatches(all);
-
     const grouped = {};
-    for (let batch of all) {
+    b.forEach((batch) => {
       if (!grouped[batch.product_id]) grouped[batch.product_id] = [];
       grouped[batch.product_id].push(batch);
-    }
+    });
 
+    setBatches(b);
     setProductBatchMap(grouped);
   }
 
@@ -59,136 +58,283 @@ export default function EditInvoiceForm({ sale, user, onBack }) {
     ...new Map(batches.map((b) => [b.product_id, b.products])).values(),
   ];
 
-  const filteredProducts = products.filter((p) =>
-    `${p.name} ${p.size}`.toLowerCase().includes(productSearch.toLowerCase())
+  const filtered = products.filter((p) =>
+    `${p.name} ${p.size}`.toLowerCase().includes(search.toLowerCase())
   );
 
-  function addItem(batch) {
-    if (batch.remaining_qty <= 0) return alert("No stock");
+  function addItem(productId) {
+    const available = (productBatchMap[productId] || []).filter(
+      (b) => b.remaining_qty > 0
+    );
 
-    setItems([
-      ...items,
+    if (!available.length) {
+      alert("Out of stock ❌");
+      return;
+    }
+
+    const best = available.sort(
+      (a, b) => b.remaining_qty - a.remaining_qty
+    )[0];
+
+    setItems((prev) => [
+      ...prev,
       {
-        product_id: batch.product_id,
-        batch_id: batch.id,
+        id: crypto.randomUUID(),
+        product_id: best.product_id,
+        batch_id: best.id,
         qty: 1,
-        sell_price: batch.sell_price,
-        name: batch.products.name,
-        size: batch.products.size,
-        batch_name: batch.batch_name,
+        sell_price: best.sell_price,
+        buy_price: best.buy_price,
+        name: best.products.name,
+        size: best.products.size,
+        batch_name: best.batch_name,
       },
     ]);
   }
 
-  function removeItem(index) {
-    setItems((prev) => prev.filter((_, i) => i !== index));
-  }
-
-  function updateQty(index, value) {
+  function updateQty(idx, val) {
+    if (!/^\d*$/.test(val)) return;
     const updated = [...items];
-    updated[index].qty = Number(value);
+    updated[idx].qty = Number(val || 0);
     setItems(updated);
   }
 
+  function removeItem(idx) {
+    setItems(items.filter((_, i) => i !== idx));
+  }
+
   const subtotal = items.reduce((s, i) => s + i.qty * i.sell_price, 0);
-
-  const discountNum = Number(discount) || 0;
-  const paidNum = Number(paid) || 0;
-
-  const final = Math.max(subtotal - discountNum, 0);
-  const due = Math.max(final - paidNum, 0);
+  const final = Math.max(subtotal - (Number(discount) || 0), 0);
+  const due = Math.max(final - (Number(paid) || 0), 0);
 
   useEffect(() => {
     if (!paid) setPaid(String(final));
   }, [final]);
 
+  // 🔥 ONLY THIS PART MATTERS
   async function saveInvoice() {
-    alert("Saved ✅");
-    onBack();
+    try {
+      const { data: oldItems } = await supabase
+        .from("sale_items")
+        .select("*")
+        .eq("sale_id", sale.id);
+
+      const logs = [];
+
+      const oldMap = new Map();
+      oldItems.forEach((i) => oldMap.set(i.batch_id, i));
+
+      const newMap = new Map();
+      items.forEach((i) => newMap.set(i.batch_id, i));
+
+      // UPDATED + REMOVED
+      for (let old of oldItems) {
+        const n = newMap.get(old.batch_id);
+
+        if (!n) {
+          logs.push({
+            sale_id: sale.id,
+            user_id: user.id,
+            action: "REMOVED",
+            product_id: old.product_id,
+            batch_id: old.batch_id,
+            old_qty: old.qty,
+            new_qty: 0,
+            old_price: old.sell_price,
+            new_price: 0,
+            old_total: old.qty * old.sell_price,
+            new_total: 0,
+            note: `Removed (${old.qty})`,
+          });
+        } else {
+          const oldTotal = old.qty * old.sell_price;
+          const newTotal = n.qty * n.sell_price;
+
+          if (
+            old.qty !== n.qty ||
+            Number(old.sell_price) !== Number(n.sell_price)
+          ) {
+            logs.push({
+              sale_id: sale.id,
+              user_id: user.id,
+              action: "UPDATED",
+              product_id: old.product_id,
+              batch_id: old.batch_id,
+              old_qty: old.qty,
+              new_qty: n.qty,
+              old_price: old.sell_price,
+              new_price: n.sell_price,
+              old_total: oldTotal,
+              new_total: newTotal,
+              note: `Qty ${old.qty}→${n.qty}, Total ₹${oldTotal}→₹${newTotal}`,
+            });
+          }
+        }
+      }
+
+      // ADDED
+      for (let i of items) {
+        if (!oldMap.has(i.batch_id)) {
+          logs.push({
+            sale_id: sale.id,
+            user_id: user.id,
+            action: "ADDED",
+            product_id: i.product_id,
+            batch_id: i.batch_id,
+            old_qty: 0,
+            new_qty: i.qty,
+            old_price: 0,
+            new_price: i.sell_price,
+            old_total: 0,
+            new_total: i.qty * i.sell_price,
+            note: `Added (${i.qty})`,
+          });
+        }
+      }
+
+      // 🔥 EVERYTHING BELOW SAME (UNCHANGED)
+
+      const batchIds = [
+        ...new Set([
+          ...oldItems.map((i) => i.batch_id),
+          ...items.map((i) => i.batch_id),
+        ]),
+      ];
+
+      const { data: batchData } = await supabase
+        .from("product_batches")
+        .select("id, remaining_qty")
+        .in("id", batchIds);
+
+      const batchMap = {};
+      batchData.forEach((b) => (batchMap[b.id] = b.remaining_qty));
+
+      oldItems.forEach((i) => (batchMap[i.batch_id] += i.qty));
+
+      for (let i of items) {
+        if (batchMap[i.batch_id] < i.qty) throw new Error("Stock issue");
+        batchMap[i.batch_id] -= i.qty;
+      }
+
+      await supabase.from("sale_items").delete().eq("sale_id", sale.id);
+
+      await supabase.from("sale_items").insert(
+        items.map((i) => ({
+          sale_id: sale.id,
+          user_id: user.id,
+          product_id: i.product_id,
+          batch_id: i.batch_id,
+          qty: i.qty,
+          sell_price: i.sell_price,
+          buy_price: i.buy_price,
+        }))
+      );
+
+      await Promise.all(
+        Object.entries(batchMap).map(([id, qty]) =>
+          supabase
+            .from("product_batches")
+            .update({ remaining_qty: qty })
+            .eq("id", id)
+        )
+      );
+
+      await supabase
+        .from("sales")
+        .update({
+          total_amount: subtotal,
+          final_amount: final,
+          paid_amount: Number(paid) || 0,
+          discount: Number(discount) || 0,
+          due_amount: due,
+          payment_status:
+            due === 0 ? "PAID" : Number(paid) === 0 ? "DUE" : "PARTIAL",
+        })
+        .eq("id", sale.id);
+
+      if (logs.length) {
+        await supabase.from("sale_edit_logs").insert(logs);
+      }
+
+      alert("Updated ✅");
+      onBack();
+    } catch (err) {
+      console.error(err);
+      alert(err.message);
+    }
   }
 
   return (
-    <div style={styles.container}>
-      <div style={styles.header}>
-        <h2>Invoice #{sale.id.slice(0, 6)}</h2>
-        <button onClick={onBack}>← Back</button>
-      </div>
+    <div style={{ maxWidth: 800, margin: "auto", fontFamily: "sans-serif" }}>
+      <h2>Edit Invoice</h2>
 
-      {/* 🔍 SEARCH */}
-      <div style={{ position: "relative" }}>
-        <input
-          style={styles.select}
-          placeholder="Search Product..."
-          value={productSearch}
-          onChange={(e) => {
-            setProductSearch(e.target.value);
-            setShowList(true);
+      <input
+        placeholder="Search product..."
+        value={search}
+        onChange={(e) => {
+          setSearch(e.target.value);
+          setShowList(true);
+        }}
+        style={{ width: "100%", padding: 10 }}
+      />
+
+      {showList && search && (
+        <div style={{ border: "1px solid #ddd", marginTop: 5 }}>
+          {filtered.map((p) => (
+            <div
+              key={p.id}
+              style={{ padding: 10, cursor: "pointer" }}
+              onClick={() => {
+                addItem(p.id);
+                setSearch("");
+                setShowList(false);
+              }}
+            >
+              {p.name} ({p.size})
+            </div>
+          ))}
+        </div>
+      )}
+
+      {items.map((i, idx) => (
+        <div
+          key={idx}
+          style={{
+            display: "grid",
+            gridTemplateColumns: "2fr 1fr 1fr 1fr auto",
+            gap: 10,
+            marginTop: 10,
+            border: "1px solid #eee",
+            padding: 10,
           }}
-        />
-
-        {showList && productSearch && (
-          <div style={styles.dropdown}>
-            {filteredProducts.map((p) => (
-              <div
-                key={p.id}
-                style={styles.dropdownItem}
-                onClick={() => {
-                  const valid = (productBatchMap[p.id] || []).filter(
-                    (b) => b.remaining_qty > 0
-                  );
-
-                  if (!valid.length) return alert("Out of stock");
-
-                  const latest = valid.sort(
-                    (a, b) =>
-                      new Date(b.created_at) - new Date(a.created_at)
-                  )[0];
-
-                  addItem(latest);
-
-                  setProductSearch("");
-                  setShowList(false);
-                }}
-              >
-                {p.name} ({p.size})
-              </div>
-            ))}
+        >
+          <div>
+            {i.name} ({i.size})
+            <br />
+            <small>{i.batch_name}</small>
           </div>
-        )}
-      </div>
 
-      {/* TABLE */}
-      <div style={styles.table}>
-        {items.map((i, idx) => (
-          <div key={idx} style={styles.row}>
-            <span>{i.name} ({i.size})</span>
-            <span>{i.batch_name}</span>
+          <input
+            value={i.qty}
+            onChange={(e) => updateQty(idx, e.target.value)}
+          />
 
-            <input
-              value={i.qty}
-              onChange={(e) => updateQty(idx, e.target.value)}
-            />
+          <div>₹{i.sell_price}</div>
+          <div>₹{i.qty * i.sell_price}</div>
 
-            <span>₹{i.sell_price}</span>
-            <span>₹{i.qty * i.sell_price}</span>
+          <button onClick={() => removeItem(idx)}>X</button>
+        </div>
+      ))}
 
-            <button onClick={() => removeItem(idx)}>X</button>
-          </div>
-        ))}
-      </div>
-
-      {/* SUMMARY */}
-      <div style={styles.summary}>
+      <div style={{ marginTop: 20 }}>
         <p>Subtotal: ₹{subtotal}</p>
 
         <input
           placeholder="Discount"
           value={discount}
-          onChange={(e) => {
-            if (/^\d*$/.test(e.target.value)) {
-              setDiscount(e.target.value);
-            }
-          }}
+          onChange={(e) =>
+            /^\d*$/.test(e.target.value) && setDiscount(e.target.value)
+          }
         />
 
         <p>Final: ₹{final}</p>
@@ -196,51 +342,17 @@ export default function EditInvoiceForm({ sale, user, onBack }) {
         <input
           placeholder="Paid"
           value={paid}
-          onChange={(e) => {
-            if (/^\d*$/.test(e.target.value)) {
-              setPaid(e.target.value);
-            }
-          }}
+          onChange={(e) =>
+            /^\d*$/.test(e.target.value) && setPaid(e.target.value)
+          }
         />
 
         <p>Due: ₹{due}</p>
       </div>
 
-      <button style={styles.saveBtn} onClick={saveInvoice}>
-        Save Invoice
+      <button onClick={saveInvoice} style={{ marginTop: 20 }}>
+        Save
       </button>
     </div>
   );
 }
-
-const styles = {
-  container: { maxWidth: 900, margin: "auto" },
-  header: { display: "flex", justifyContent: "space-between" },
-
-  select: { padding: 10, width: "100%" },
-
-  dropdown: {
-    position: "absolute",
-    background: "#fff",
-    border: "1px solid #ccc",
-    width: "100%",
-    maxHeight: 200,
-    overflowY: "auto",
-  },
-
-  dropdownItem: {
-    padding: 8,
-    cursor: "pointer",
-  },
-
-  table: { marginTop: 20 },
-  row: {
-    display: "grid",
-    gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 50px",
-    marginBottom: 10,
-  },
-
-  summary: { marginTop: 20 },
-
-  saveBtn: { padding: 10, marginTop: 10 },
-};

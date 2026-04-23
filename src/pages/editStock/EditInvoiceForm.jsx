@@ -12,9 +12,23 @@ export default function EditInvoiceForm({ sale, user, onBack }) {
   const [discount, setDiscount] = useState("");
   const [paid, setPaid] = useState("");
 
+  const [customers, setCustomers] = useState([]);
+  const [selectedCustomer, setSelectedCustomer] = useState("");
+
   useEffect(() => {
     loadData();
+    loadCustomers();
   }, []);
+
+  async function loadCustomers() {
+    const { data } = await supabase
+      .from("customers")
+      .select("*")
+      .eq("user_id", user.id);
+
+    setCustomers(data || []);
+    setSelectedCustomer(sale.customer_id);
+  }
 
   async function loadData() {
     const { data } = await supabase
@@ -111,7 +125,70 @@ export default function EditInvoiceForm({ sale, user, onBack }) {
     if (!paid) setPaid(String(final));
   }, [final]);
 
-  // 🔥 ONLY THIS PART MATTERS
+  async function updateCustomer() {
+    await supabase
+      .from("sales")
+      .update({ customer_id: selectedCustomer })
+      .eq("id", sale.id);
+
+    alert("Customer updated ✅");
+  }
+
+  async function deleteInvoice() {
+    if (!window.confirm("Delete invoice?")) return;
+
+    const { data: oldItems } = await supabase
+      .from("sale_items")
+      .select("*")
+      .eq("sale_id", sale.id);
+
+    const deletedSaleId = crypto.randomUUID();
+
+    await supabase.from("deleted_sales").insert([{
+      id: deletedSaleId,
+      user_id: user.id,
+      original_sale_id: sale.id,
+      customer_id: sale.customer_id,
+      total_amount: sale.total_amount,
+      final_amount: sale.final_amount,
+      paid_amount: sale.paid_amount,
+      due_amount: sale.due_amount,
+      payment_status: sale.payment_status,
+      original_created_at: sale.created_at,
+      deleted_by: user.id
+    }]);
+
+    for (let i of oldItems) {
+      const { data: batch } = await supabase
+        .from("product_batches")
+        .select("remaining_qty")
+        .eq("id", i.batch_id)
+        .single();
+
+      const after = batch.remaining_qty + i.qty;
+
+      await supabase
+        .from("product_batches")
+        .update({ remaining_qty: after })
+        .eq("id", i.batch_id);
+
+      await supabase.from("deleted_sale_items").insert([{
+        deleted_sale_id: deletedSaleId,
+        user_id: user.id,
+        product_id: i.product_id,
+        batch_id: i.batch_id,
+        qty: i.qty,
+        stock_after: after
+      }]);
+    }
+
+    await supabase.from("sale_items").delete().eq("sale_id", sale.id);
+    await supabase.from("sales").delete().eq("id", sale.id);
+
+    alert("Deleted ✅");
+    onBack();
+  }
+
   async function saveInvoice() {
     try {
       const { data: oldItems } = await supabase
@@ -127,7 +204,6 @@ export default function EditInvoiceForm({ sale, user, onBack }) {
       const newMap = new Map();
       items.forEach((i) => newMap.set(i.batch_id, i));
 
-      // UPDATED + REMOVED
       for (let old of oldItems) {
         const n = newMap.get(old.batch_id);
 
@@ -147,9 +223,6 @@ export default function EditInvoiceForm({ sale, user, onBack }) {
             note: `Removed (${old.qty})`,
           });
         } else {
-          const oldTotal = old.qty * old.sell_price;
-          const newTotal = n.qty * n.sell_price;
-
           if (
             old.qty !== n.qty ||
             Number(old.sell_price) !== Number(n.sell_price)
@@ -164,15 +237,14 @@ export default function EditInvoiceForm({ sale, user, onBack }) {
               new_qty: n.qty,
               old_price: old.sell_price,
               new_price: n.sell_price,
-              old_total: oldTotal,
-              new_total: newTotal,
-              note: `Qty ${old.qty}→${n.qty}, Total ₹${oldTotal}→₹${newTotal}`,
+              old_total: old.qty * old.sell_price,
+              new_total: n.qty * n.sell_price,
+              note: `Qty ${old.qty} → ${n.qty}`,
             });
           }
         }
       }
 
-      // ADDED
       for (let i of items) {
         if (!oldMap.has(i.batch_id)) {
           logs.push({
@@ -192,8 +264,6 @@ export default function EditInvoiceForm({ sale, user, onBack }) {
         }
       }
 
-      // 🔥 EVERYTHING BELOW SAME (UNCHANGED)
-
       const batchIds = [
         ...new Set([
           ...oldItems.map((i) => i.batch_id),
@@ -212,7 +282,8 @@ export default function EditInvoiceForm({ sale, user, onBack }) {
       oldItems.forEach((i) => (batchMap[i.batch_id] += i.qty));
 
       for (let i of items) {
-        if (batchMap[i.batch_id] < i.qty) throw new Error("Stock issue");
+        if (batchMap[i.batch_id] < i.qty)
+          throw new Error("Stock issue");
         batchMap[i.batch_id] -= i.qty;
       }
 
@@ -257,7 +328,12 @@ export default function EditInvoiceForm({ sale, user, onBack }) {
       }
 
       alert("Updated ✅");
-      onBack();
+
+      // 🔥 refresh without breaking UI
+      await loadData();
+      setSearch("");
+      setShowList(false);
+
     } catch (err) {
       console.error(err);
       alert(err.message);
@@ -267,6 +343,17 @@ export default function EditInvoiceForm({ sale, user, onBack }) {
   return (
     <div style={{ maxWidth: 800, margin: "auto", fontFamily: "sans-serif" }}>
       <h2>Edit Invoice</h2>
+
+      <select value={selectedCustomer} onChange={(e) => setSelectedCustomer(e.target.value)}>
+        {customers.map((c) => (
+          <option key={c.id} value={c.id}>{c.name}</option>
+        ))}
+      </select>
+
+      <button onClick={updateCustomer}>Update Customer</button>
+      <button onClick={deleteInvoice} style={{ marginLeft: 10, color: "red" }}>
+        Delete Invoice
+      </button>
 
       <input
         placeholder="Search product..."
@@ -314,10 +401,7 @@ export default function EditInvoiceForm({ sale, user, onBack }) {
             <small>{i.batch_name}</small>
           </div>
 
-          <input
-            value={i.qty}
-            onChange={(e) => updateQty(idx, e.target.value)}
-          />
+          <input value={i.qty} onChange={(e) => updateQty(idx, e.target.value)} />
 
           <div>₹{i.sell_price}</div>
           <div>₹{i.qty * i.sell_price}</div>

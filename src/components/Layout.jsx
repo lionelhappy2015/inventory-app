@@ -15,6 +15,7 @@ import SalesFlow from "../pages/salesPage/SalesFlow";
 import SaleLogsPage from "../pages/SaleLogsPage";
 import SalesDashboard from "../pages/SalesDashboard";
 import InventoryDashboard from "../pages/InventoryDashboard";
+import DueDashboard from "../pages/DueDashboard";
 
 export default function Layout({ user }) {
   const [page, setPage] = useState("dashboard");
@@ -33,7 +34,7 @@ export default function Layout({ user }) {
     
     
 
-    if (page === "credit") return <h2>Credit</h2>;
+    if (page === "dues") return <DueDashboard user={user} />;
 
    
     if (page === "export") return <Export user={user} />;
@@ -61,7 +62,11 @@ export default function Layout({ user }) {
   onClick={() => setPage("sales")}
 />
         
-        <NavButton label="Credit" active={page === "credit"} onClick={() => setPage("credit")} />
+<NavButton 
+  label="Dues / Credit" 
+  active={page === "dues"} 
+  onClick={() => setPage("dues")} 
+/>
         <NavButton
   label="Customers"
   active={page === "customers"}

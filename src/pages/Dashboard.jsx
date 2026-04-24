@@ -7,6 +7,7 @@ export default function Dashboard({ user }) {
     todayProfit: 0,
     totalDue: 0,
     totalSales: 0,
+    totalProfit: 0, // ✅ NEW
   });
 
   const [loading, setLoading] = useState(true);
@@ -20,41 +21,41 @@ export default function Dashboard({ user }) {
 
     const today = new Date().toISOString().split("T")[0];
 
-    // 🔥 TODAY SALES + PROFIT
-    const { data: todayData } = await supabase
+    // 🔥 FETCH ALL SALES ONCE (OPTIMIZED)
+    const { data, error } = await supabase
       .from("sales")
-      .select("final_amount, total_profit")
-      .eq("user_id", user.id)
-      .gte("created_at", today);
+      .select("final_amount, total_profit, due_amount, created_at")
+      .eq("user_id", user.id);
+
+    if (error) {
+      console.error(error);
+      setLoading(false);
+      return;
+    }
 
     let todaySales = 0;
     let todayProfit = 0;
-
-    todayData?.forEach((s) => {
-      todaySales += Number(s.final_amount || 0);
-      todayProfit += Number(s.total_profit || 0);
-    });
-
-    // 🔥 TOTAL DUE
-    const { data: dueData } = await supabase
-      .from("sales")
-      .select("due_amount")
-      .eq("user_id", user.id);
-
     let totalDue = 0;
-    dueData?.forEach((d) => {
-      totalDue += Number(d.due_amount || 0);
-    });
-
-    // 🔥 TOTAL SALES
-    const { data: totalSalesData } = await supabase
-      .from("sales")
-      .select("final_amount")
-      .eq("user_id", user.id);
-
     let totalSales = 0;
-    totalSalesData?.forEach((s) => {
-      totalSales += Number(s.final_amount || 0);
+    let totalProfit = 0;
+
+    data?.forEach((s) => {
+      const saleDate = s.created_at?.split("T")[0];
+
+      const amount = Number(s.final_amount || 0);
+      const profit = Number(s.total_profit || 0);
+      const due = Number(s.due_amount || 0);
+
+      // ✅ TODAY
+      if (saleDate === today) {
+        todaySales += amount;
+        todayProfit += profit;
+      }
+
+      // ✅ TOTALS
+      totalSales += amount;
+      totalProfit += profit;
+      totalDue += due;
     });
 
     setStats({
@@ -62,6 +63,7 @@ export default function Dashboard({ user }) {
       todayProfit,
       totalDue,
       totalSales,
+      totalProfit, // ✅ NEW
     });
 
     setLoading(false);
@@ -79,6 +81,9 @@ export default function Dashboard({ user }) {
           <Card title="Today Profit" value={stats.todayProfit} color="#2ecc71" />
           <Card title="Total Due" value={stats.totalDue} color="#e74c3c" />
           <Card title="Total Sales" value={stats.totalSales} color="#9b59b6" />
+
+          {/* 🔥 NEW CARD */}
+          <Card title="Total Profit" value={stats.totalProfit} color="#f39c12" />
         </div>
       )}
     </div>
